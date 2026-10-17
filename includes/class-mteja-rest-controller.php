@@ -1238,42 +1238,48 @@ class Mteja_Rest_Controller {
 					ARRAY_A
 				);
 
-				// Multi-Turn Contextual Query Enrichment:
-				// When a visitor asks a follow-up (e.g. "so what do you recommend, in plain simple language", "how do I do step 1?", "why?"),
-				// combine with recent visitor queries so Supabase pgvector retrieves grounded troubleshooting context
-				$search_query = $content;
-				if ( ! empty( $history ) && count( $history ) > 1 ) {
-					$is_followup = (
-						str_word_count( $content ) <= 12 ||
-						preg_match( '/^(so|what|how|why|which|can|could|tell|explain|simplify|recommend)/i', trim( $content ) )
-					);
-					if ( $is_followup ) {
-						$prev_queries = array();
-						foreach ( array_reverse( $history ) as $h_msg ) {
-							if ( 'visitor' === $h_msg['sender_type'] && trim( $h_msg['content'] ) !== trim( $content ) ) {
-								$prev_queries[] = trim( $h_msg['content'] );
-								if ( count( $prev_queries ) >= 2 ) {
-									break;
+				// Detect if the user's message is a meta-request on existing conversation
+				// (e.g. "summarize", "summarize in common language", "simplify", "short version", "what do you mean?")
+				$is_meta_summary = (bool) preg_match( '/\b(summarize|summary|simplify|simple terms|plain language|common language|in short|tl;?dr|explain simply|what do you mean)\b/i', $content );
+
+				$chunks = array();
+				if ( ! $is_meta_summary ) {
+					// Multi-Turn Contextual Query Enrichment:
+					// When a visitor asks a follow-up, combine with recent visitor queries so Supabase pgvector retrieves grounded context
+					$search_query = $content;
+					if ( ! empty( $history ) && count( $history ) > 1 ) {
+						$is_followup = (
+							str_word_count( $content ) <= 12 ||
+							preg_match( '/^(so|what|how|why|which|can|could|tell|explain|recommend)/i', trim( $content ) )
+						);
+						if ( $is_followup ) {
+							$prev_queries = array();
+							foreach ( array_reverse( $history ) as $h_msg ) {
+								if ( 'visitor' === $h_msg['sender_type'] && trim( $h_msg['content'] ) !== trim( $content ) ) {
+									$prev_queries[] = trim( $h_msg['content'] );
+									if ( count( $prev_queries ) >= 2 ) {
+										break;
+									}
 								}
 							}
-						}
-						if ( ! empty( $prev_queries ) ) {
-							$search_query = implode( ' ', array_reverse( $prev_queries ) ) . ' ' . $content;
+							if ( ! empty( $prev_queries ) ) {
+								$search_query = implode( ' ', array_reverse( $prev_queries ) ) . ' ' . $content;
+							}
 						}
 					}
-				}
 
-				// Query Supabase pgvector match_chunks with primary threshold
-				$chunks = Mteja_RAG::search_chunks( $search_query, $ws_id, $threshold, 4 );
+					// Query Supabase pgvector match_chunks with primary threshold
+					$chunks = Mteja_RAG::search_chunks( $search_query, $ws_id, $threshold, 4 );
 
-				// If no chunks match at primary threshold, try relaxed floor (0.35)
-				if ( empty( $chunks ) ) {
-					$chunks = Mteja_RAG::search_chunks( $search_query, $ws_id, 0.35, 3 );
-				}
+					// If no chunks match at primary threshold, try relaxed floor (0.35)
+					if ( empty( $chunks ) ) {
+						$chunks = Mteja_RAG::search_chunks( $search_query, $ws_id, 0.35, 3 );
+					}
 
-				// If combined query had no matches, fallback to current content alone
-				if ( empty( $chunks ) && $search_query !== $content ) {
-					$chunks = Mteja_RAG::search_chunks( $content, $ws_id, 0.35, 3 );
+					// If combined query had no matches, fallback to current content alone
+					if ( empty( $chunks ) && $search_query !== $content ) {
+						$chunks = Mteja_RAG::search_chunks( $content, $ws_id, 0.35, 3 );
+					}
 				}
 
 				$ai_reply = Mteja_RAG::generate_chat_completion( $history, $system_prompt, $chunks );
