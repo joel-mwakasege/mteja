@@ -1,0 +1,128 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/theme.json",
+  "version": 3,
+  "settings": {
+    "appearanceTools": true,
+    "color": {
+      "defaultPalette": false,
+      "palette": [
+        {
+          "slug": "canvas",
+          "color": "#faf9f6",
+          "name": "Canvas (Warm Parchment)"
+        },
+        {
+          "slug": "surface",
+          "color": "#ffffff",
+          "name": "Surface (Crisp White Card)"
+        },
+        {
+          "slug": "surface-muted",
+          "color": "#f4f4f1",
+          "name": "Surface Muted (Bone Tag/Fills)"
+        },
+        {
+          "slug": "border",
+          "color": "#e5e5e2",
+          "name": "Border (Stone Hairline)"
+        },
+        {
+          "slug": "pitch",
+          "color": "#111111",
+          "name": "Pitch (Primary Text & CTAs)"
+        },
+        {
+          "slug": "charcoal",
+          "color": "#242424",
+          "name": "Charcoal (Body Text)"
+        },
+        {
+          "slug": "muted",
+          "color": "#71717a",
+          "name": "Muted (Secondary Ash)"
+        },
+        {
+          "slug": "emerald",
+          "color": "#10b981",
+          "name": "Emerald (Status & Verified RAG)"
+        },
+        {
+          "slug": "parchment",
+          "color": "#faf9f6",
+          "name": "Parchment Legacy"
+        },
+        {
+          "slug": "ink",
+          "color": "#111111",
+          "name": "Ink Legacy"
+        }
+      ]
+    },
+    "typography": {
+      "fontFamilies": [
+        {
+          "fontFamily": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          "slug": "sans",
+          "name": "Inter / Sans"
+        },
+        {
+          "fontFamily": "'JetBrains Mono', Menlo, Consolas, monospace",
+          "slug": "mono",
+          "name": "JetBrains Mono"
+        }
+      ],
+      "fontSizes": [
+        {
+          "slug": "small",
+          "size": "13px",
+          "name": "Small"
+        },
+        {
+          "slug": "medium",
+          "size": "15px",
+          "name": "Medium"
+        },
+        {
+          "slug": "large",
+          "size": "22px",
+          "name": "Heading SM"
+        },
+        {
+          "slug": "x-large",
+          "size": "32px",
+          "name": "Heading LG"
+        },
+        {
+          "slug": "hero",
+          "size": "clamp(34px, 5.2vw, 54px)",
+          "name": "Hero Display"
+        }
+      ]
+    },
+    "layout": {
+      "contentSize": "820px",
+      "wideSize": "1200px"
+    }
+  },
+  "styles": {
+    "color": {
+      "background": "var(--wp--preset--color--canvas)",
+      "text": "var(--wp--preset--color--pitch)"
+    },
+    "typography": {
+      "fontFamily": "var(--wp--preset--font-family--sans)",
+      "lineHeight": "1.5"
+    },
+    "elements": {
+      "button": {
+        "color": {
+          "background": "var(--wp--preset--color--pitch)",
+          "text": "var(--wp--preset--color--surface)"
+        },
+        "border": {
+          "radius": "9999px"
+        }
+      }
+    }
+  }
+}

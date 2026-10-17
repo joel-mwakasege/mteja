@@ -1,0 +1,118 @@
+/* ==========================================================================
+   Mteja — Google Stitch Design System Tokens & Gutenberg Preview Styles
+   Autonomous AI Support Agent for WordPress
+   ========================================================================== */
+
+:root {
+  /* Stitch Canonical Palette */
+  --mteja-canvas: #faf9f6;
+  --mteja-surface: #ffffff;
+  --mteja-surface-muted: #f4f4f1;
+  --mteja-surface-subtle: #f7f7f5;
+  --mteja-border: #e5e5e2;
+  --mteja-border-subtle: #ededeb;
+  --mteja-pitch: #111111;
+  --mteja-charcoal-dark: #1a1a1a;
+  --mteja-charcoal-text: #242424;
+  --mteja-muted: #71717a;
+  --mteja-muted-light: #a1a1aa;
+  --mteja-emerald: #10b981;
+
+  /* Legacy Warm Parchment fallbacks */
+  --mteja-parchment: #faf9f6;
+  --mteja-bone: #f4f4f1;
+  --mteja-stone: #e5e5e2;
+  --mteja-ink: #111111;
+  --mteja-ash: #71717a;
+
+  /* Radii */
+  --mteja-radius-pill: 9999px;
+  --mteja-radius-card: 16px;
+  --mteja-radius-frame: 12px;
+  --mteja-radius-sm: 8px;
+
+  /* Shadows */
+  --mteja-shadow-subtle: 0 8px 30px rgba(0, 0, 0, 0.04);
+  --mteja-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+
+  /* Typography */
+  --mteja-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mteja-font-mono: 'JetBrains Mono', Menlo, Monaco, Consolas, monospace;
+}
+
+/* Base Body & Canvas */
+body.mteja-page,
+.mteja-stitch-canvas,
+.mteja-login-canvas {
+  background-color: var(--mteja-canvas) !important;
+  color: var(--mteja-pitch) !important;
+  font-family: var(--mteja-font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Selection */
+.mteja-stitch-canvas ::selection,
+.mteja-login-canvas ::selection {
+  background-color: var(--mteja-pitch);
+  color: #ffffff;
+}
+
+/* Header Sticky Blur */
+.mteja-header-nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background-color: rgba(250, 249, 246, 0.9) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--mteja-border) !important;
+}
+
+/* Button & Pill Micro-Interactions */
+.mteja-stitch-canvas .wp-block-button__link,
+.mteja-login-canvas button[type="submit"] {
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background-color 150ms ease, opacity 150ms ease !important;
+  touch-action: manipulation !important;
+}
+
+.mteja-stitch-canvas .wp-block-button__link:active,
+.mteja-login-canvas button[type="submit"]:active {
+  transform: scale(0.98) !important;
+}
+
+/* Avatar & Logo Placeholder Slots */
+.mteja-avatar-slot,
+.mteja-logo-slot {
+  position: relative;
+  transition: opacity 150ms ease;
+  user-select: none;
+}
+
+.mteja-avatar-slot:hover,
+.mteja-logo-slot:hover {
+  opacity: 0.85;
+}
+
+/* Interactive OS Showcase Frame */
+.mteja-hero-os-frame {
+  box-shadow: var(--mteja-shadow-subtle) !important;
+}
+
+/* Mobile Responsiveness Enhancements */
+@media (max-width: 768px) {
+  .mteja-header-nav {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  
+  .mteja-hero-os-frame .wp-block-columns {
+    flex-direction: column !important;
+  }
+
+  .mteja-hero-os-frame .wp-block-column {
+    flex-basis: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--mteja-border) !important;
+  }
+}
