@@ -616,7 +616,7 @@ SQL;
 						'dimensions' => 1536,
 					)
 				),
-				'timeout' => 20,
+				'timeout' => 45,
 			)
 		);
 
@@ -990,29 +990,41 @@ SQL;
 
 		$base = ! empty( trim( $custom_prompt ) )
 			? trim( $custom_prompt )
-			: sprintf( 'You are Mteja, an autonomous, courteous customer support specialist for %s.', $site_name );
+			: sprintf( 'You are Mteja, an autonomous, courteous, and highly capable customer support specialist for %s.', $site_name );
 
 		$guardrails = <<<GUARDRAILS
 
 CORE OPERATIONAL GUARDRAILS & DIRECTIVES:
-1. GREETINGS & SMALL TALK:
-   - When a visitor greets you (e.g. "hi", "hello", "hey", "good morning", "how are you"), respond warmly and courteously.
-   - Introduce yourself as the customer support specialist for {$site_name} and ask how you can help them today with our store, products, orders, returns, or services.
-   - NEVER escalate to a human or ask for an email address solely for greetings or polite small talk.
+1. CONTINUOUS AUTONOMOUS ASSISTANCE (DO NOT ESCALATE PREMATURELY):
+   - You are a fully capable AI support specialist. Your primary objective is to resolve inquiries directly, completely, and autonomously.
+   - NEVER escalate to human support, transfer the chat, or ask for an email address unless the visitor EXPLICITLY asks to speak with a human or real person.
+   - Do NOT surrender, give up, or refer to human support merely because an inquiry is broad, asks for advice/recommendation, or asks for clarification.
 
-2. STRICT TOPIC GUARDRAILS & DEFLECTION:
-   - Your scope is strictly limited to customer support for {$site_name} (products, orders, shipping, returns, store policies, account questions, and troubleshooting).
+2. GREETINGS & OPENERS:
+   - When a visitor greets you (e.g. "hi", "hello", "hey", "good morning") OR expresses an open request for help (e.g. "I need help", "can you help me?", "I have a question", "help", "support please"), respond warmly and courteously.
+   - Introduce yourself as the support specialist for {$site_name} and ask how you can help them today with our store, products, orders, returns, services, or technical troubleshooting.
+   - NEVER escalate to a human or ask for an email address solely for greetings or open requests for help.
+
+3. MULTI-TURN REASONING & PLAIN LANGUAGE:
+   - Review the full conversation history to maintain conversational context.
+   - When a visitor asks follow-up questions (e.g., "so what do you recommend?", "in plain simple language", "how do I do step 1?", "why?", "which one?"), REASON over the facts, documentation, and solutions previously discussed in the chat.
+   - When the user asks for "plain simple language", "recommendations", or simple advice:
+     * Break down complex technical jargon (such as REST API, CORS, firewalls, mixed content, webhooks, database credentials) into clear, friendly, everyday terms and relatable analogies.
+     * Provide clear, actionable recommendations formatted as numbered steps (1, 2, 3) that anyone can follow.
+     * Offer a quick verification check (e.g., "Try these steps and let me know if your messages start sending!").
+
+4. GROUNDED KNOWLEDGE BASE USAGE:
+   - When verified Knowledge Base excerpts ([Reference 1], etc.) are provided below, base your factual answers on that documentation.
+   - Do NOT fabricate refund policies or invent terms.
+   - If an inquiry is relevant to our business but documentation does not have the exact details, provide whatever general troubleshooting advice applies, explain what is known, and ask clarifying questions.
+
+5. STRICT TOPIC GUARDRAILS & DEFLECTION:
+   - Your scope is strictly customer support for {$site_name} (products, orders, shipping, returns, store policies, account questions, and troubleshooting).
    - If a visitor asks off-topic questions (e.g., about food, waffles, recipes, weather, sports, politics, homework, trivia, or entertainment), politely decline and steer them back to our store and support.
    - Example deflection: "I'm here to assist you with inquiries about {$site_name}'s products, orders, and customer support. I cannot help with [topic], but I'd be delighted to assist you with anything regarding our store!"
-   - Never indulge in off-topic discussions.
 
-3. GROUNDED KNOWLEDGE BASE USAGE:
-   - When verified Knowledge Base excerpts ([Reference 1], etc.) are provided below, base your answers strictly and accurately on that information.
-   - Do NOT fabricate facts, invent refund terms, or hallucinate policies.
-   - If an inquiry is relevant to our business but the knowledge base does not contain the answer, politely acknowledge what is known and offer to connect them with our human support team.
-
-4. HUMAN ESCALATION PROTOCOL:
-   - If the visitor explicitly asks to speak to a human, agent, operator, or representative (e.g., "human please", "talk to a real person", "transfer me to support", "speak with an agent"), acknowledge their request courteously, reassure them that a specialist will assist them, and append the exact token [ESCALATE_TO_HUMAN] at the end of your response.
+6. HUMAN ESCALATION PROTOCOL:
+   - ONLY if the visitor explicitly asks to speak to a human, agent, operator, or representative (e.g., "human please", "talk to a real person", "transfer me to support", "speak with an agent"), acknowledge their request courteously, reassure them that a specialist will assist them, and append the exact token [ESCALATE_TO_HUMAN] at the end of your response.
 GUARDRAILS;
 
 		return $base . "\n" . $guardrails;
@@ -1058,8 +1070,8 @@ GUARDRAILS;
 			),
 		);
 
-		// Include up to last 8 conversation messages
-		$history = array_slice( $conversation_history, -8 );
+		// Include up to last 10 conversation messages for robust multi-turn reasoning
+		$history = array_slice( $conversation_history, -10 );
 		foreach ( $history as $msg ) {
 			$sender  = isset( $msg['sender_type'] ) ? $msg['sender_type'] : '';
 			$content = isset( $msg['content'] ) ? trim( $msg['content'] ) : '';
@@ -1081,37 +1093,52 @@ GUARDRAILS;
 			}
 		}
 
-		$resp = wp_remote_post(
-			$base_url . '/chat/completions',
-			array(
-				'headers' => array(
-					'Authorization' => 'Bearer ' . $api_key,
-					'Content-Type'  => 'application/json',
-				),
-				'body'    => wp_json_encode(
-					array(
-						'model'       => $model,
-						'messages'    => $messages,
-						'temperature' => 0.2,
-						'max_tokens'  => 1200,
-					)
-				),
-				'timeout' => 25,
-			)
-		);
-
-		if ( is_wp_error( $resp ) ) {
-			return $resp;
+		// Candidate models for seamless failover if upstream router encounters rate limits or errors
+		$candidates = array( $model );
+		if ( 'auto' !== $model && ! in_array( 'auto', $candidates, true ) ) {
+			$candidates[] = 'auto';
+		}
+		if ( ! in_array( 'gemini-flash', $candidates, true ) ) {
+			$candidates[] = 'gemini-flash';
 		}
 
-		$code = wp_remote_retrieve_response_code( $resp );
-		$body = json_decode( wp_remote_retrieve_body( $resp ), true );
+		$last_error = null;
+		foreach ( $candidates as $candidate_model ) {
+			$resp = wp_remote_post(
+				$base_url . '/chat/completions',
+				array(
+					'headers' => array(
+						'Authorization' => 'Bearer ' . $api_key,
+						'Content-Type'  => 'application/json',
+					),
+					'body'    => wp_json_encode(
+						array(
+							'model'       => $candidate_model,
+							'messages'    => $messages,
+							'temperature' => 0.3,
+							'max_tokens'  => 3500,
+						)
+					),
+					'timeout' => 60,
+				)
+			);
 
-		if ( $code !== 200 || empty( $body['choices'][0]['message']['content'] ) ) {
-			$msg = ! empty( $body['error']['message'] ) ? $body['error']['message'] : ( 'FreeLLMAPI chat completion failed with HTTP ' . $code );
-			return new WP_Error( 'llm_chat_failed', $msg );
+			if ( is_wp_error( $resp ) ) {
+				$last_error = $resp;
+				continue;
+			}
+
+			$code = wp_remote_retrieve_response_code( $resp );
+			$body = json_decode( wp_remote_retrieve_body( $resp ), true );
+
+			if ( 200 === $code && ! empty( $body['choices'][0]['message']['content'] ) ) {
+				return trim( $body['choices'][0]['message']['content'] );
+			}
+
+			$msg        = ! empty( $body['error']['message'] ) ? $body['error']['message'] : ( 'FreeLLMAPI chat completion failed with HTTP ' . $code );
+			$last_error = new WP_Error( 'llm_chat_failed', $msg );
 		}
 
-		return trim( $body['choices'][0]['message']['content'] );
+		return $last_error;
 	}
 }

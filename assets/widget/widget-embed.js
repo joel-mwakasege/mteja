@@ -43,6 +43,11 @@
         currentStatus = data.status || 'ai_handling';
         localStorage.setItem('mteja_conv_id', sessionId);
         if (forceNew) {
+          const inputEl = document.getElementById('widget-input');
+          if (inputEl) {
+            inputEl.value = '';
+            inputEl.focus();
+          }
           messages = [
             { sender_type: 'ai', content: `Hello! Welcome to ${config.siteName}. How can I assist you today?` }
           ];
@@ -210,8 +215,18 @@
       newChatBtn.addEventListener('click', async () => {
         if (isSending) return;
         newChatBtn.disabled = true;
-        newChatBtn.innerText = 'Creating...';
-        await initSession(true);
+        newChatBtn.innerHTML = `
+          <svg class="animate-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+          </svg>
+          <span>Creating...</span>
+        `;
+        try {
+          await initSession(true);
+        } finally {
+          renderHeader();
+        }
       });
     }
   }

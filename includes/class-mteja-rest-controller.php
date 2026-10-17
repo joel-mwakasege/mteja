@@ -1190,14 +1190,14 @@ class Mteja_Rest_Controller {
 			$should_return_to_ai = true;
 		} elseif ( 'human_waiting' === $conv->status && empty( $conv->assigned_agent_id ) ) {
 			$should_return_to_ai = true;
-		} elseif ( 'human_active' === $conv->status ) {
+		} elseif ( in_array( $conv->status, array( 'human_active', 'human_waiting' ), true ) && ! empty( $conv->assigned_agent_id ) ) {
 			$last_agent_msg = $wpdb->get_row(
 				$wpdb->prepare(
 					"SELECT created_at FROM $table_msg WHERE conversation_id = %s AND sender_type = 'agent' ORDER BY created_at DESC LIMIT 1",
 					$conv_id
 				)
 			);
-			if ( ! $last_agent_msg || ( strtotime( current_time( 'mysql' ) ) - strtotime( $last_agent_msg->created_at ) ) > 900 ) {
+			if ( ! $last_agent_msg || ( strtotime( current_time( 'mysql' ) ) - strtotime( $last_agent_msg->created_at ) ) > 600 ) {
 				$should_return_to_ai = true;
 			}
 		}
@@ -1229,23 +1229,52 @@ class Mteja_Rest_Controller {
 			$known_email   = ! empty( $captured_email ) ? $captured_email : ( ! empty( $conv->visitor_email ) ? $conv->visitor_email : '' );
 
 			if ( Mteja_RAG::is_configured() ) {
-				// Query Supabase pgvector match_chunks with primary threshold
-				$chunks = Mteja_RAG::search_chunks( $content, $ws_id, $threshold, 4 );
-
-				// If no chunks match at primary threshold, try relaxed floor (0.35)
-				// so helpful domain context is discovered if semantically related
-				if ( empty( $chunks ) ) {
-					$chunks = Mteja_RAG::search_chunks( $content, $ws_id, 0.35, 3 );
-				}
-
 				// Retrieve recent history for conversational context
 				$history = $wpdb->get_results(
 					$wpdb->prepare(
-						"SELECT sender_type, content FROM $table_msg WHERE conversation_id = %s AND sender_type IN ('visitor', 'ai', 'agent') ORDER BY created_at ASC LIMIT 10",
+						"SELECT sender_type, content FROM $table_msg WHERE conversation_id = %s AND sender_type IN ('visitor', 'ai', 'agent') ORDER BY created_at ASC LIMIT 12",
 						$conv_id
 					),
 					ARRAY_A
 				);
+
+				// Multi-Turn Contextual Query Enrichment:
+				// When a visitor asks a follow-up (e.g. "so what do you recommend, in plain simple language", "how do I do step 1?", "why?"),
+				// combine with recent visitor queries so Supabase pgvector retrieves grounded troubleshooting context
+				$search_query = $content;
+				if ( ! empty( $history ) && count( $history ) > 1 ) {
+					$is_followup = (
+						str_word_count( $content ) <= 12 ||
+						preg_match( '/^(so|what|how|why|which|can|could|tell|explain|simplify|recommend)/i', trim( $content ) )
+					);
+					if ( $is_followup ) {
+						$prev_queries = array();
+						foreach ( array_reverse( $history ) as $h_msg ) {
+							if ( 'visitor' === $h_msg['sender_type'] && trim( $h_msg['content'] ) !== trim( $content ) ) {
+								$prev_queries[] = trim( $h_msg['content'] );
+								if ( count( $prev_queries ) >= 2 ) {
+									break;
+								}
+							}
+						}
+						if ( ! empty( $prev_queries ) ) {
+							$search_query = implode( ' ', array_reverse( $prev_queries ) ) . ' ' . $content;
+						}
+					}
+				}
+
+				// Query Supabase pgvector match_chunks with primary threshold
+				$chunks = Mteja_RAG::search_chunks( $search_query, $ws_id, $threshold, 4 );
+
+				// If no chunks match at primary threshold, try relaxed floor (0.35)
+				if ( empty( $chunks ) ) {
+					$chunks = Mteja_RAG::search_chunks( $search_query, $ws_id, 0.35, 3 );
+				}
+
+				// If combined query had no matches, fallback to current content alone
+				if ( empty( $chunks ) && $search_query !== $content ) {
+					$chunks = Mteja_RAG::search_chunks( $content, $ws_id, 0.35, 3 );
+				}
 
 				$ai_reply = Mteja_RAG::generate_chat_completion( $history, $system_prompt, $chunks );
 
@@ -1275,24 +1304,16 @@ class Mteja_Rest_Controller {
 						)
 					);
 				} else {
-					// FreeLLMAPI router failed or connection timeout -> Graceful operator routing
-					$wpdb->query(
-						$wpdb->prepare(
-							"UPDATE $table_conv SET status = 'human_waiting', assigned_agent_id = NULL, updated_at = %s WHERE id = %s",
-							current_time( 'mysql' ),
-							$conv_id
-						)
-					);
-					$fallback_msg = ! empty( $known_email )
-						? sprintf( "I've connected you with our human support team. We have your email (%s) and an operator will follow up shortly.", $known_email )
-						: "I want to make sure you get the exact help you need. I've connected you with our human support team. Please share your email address so an operator can follow up.";
+					// Temporary network or router delay: do NOT forcefully lock into human_waiting!
+					// Keep ticket in ai_handling so visitor can seamlessly continue chatting.
+					$retry_msg = "I'm reviewing your inquiry and our store documentation. Could you please share a bit more detail, or let me know what specific step or product you'd like help with?";
 					$wpdb->insert(
 						$table_msg,
 						array(
 							'id'              => wp_generate_uuid4(),
 							'conversation_id' => $conv_id,
 							'sender_type'     => 'ai',
-							'content'         => $fallback_msg,
+							'content'         => $retry_msg,
 							'created_at'      => current_time( 'mysql' ),
 						)
 					);
