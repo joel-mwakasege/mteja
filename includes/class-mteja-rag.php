@@ -1156,4 +1156,167 @@ GUARDRAILS;
 
 		return $last_error;
 	}
+
+	/**
+	 * Generate or retrieve synthesized FAQ knowledge cards.
+	 *
+	 * @param string $workspace_id Workspace UUID.
+	 * @param int    $limit Number of FAQs to generate.
+	 * @param bool   $force_refresh Whether to force regeneration via AI.
+	 * @return array
+	 */
+	public static function generate_faqs( $workspace_id = '', $limit = 6, $force_refresh = false ) {
+		if ( empty( $workspace_id ) ) {
+			$workspace_id = get_option( 'mteja_default_workspace_id', 'default' );
+		}
+
+		$cache_key = 'mteja_workspace_faqs_' . $workspace_id;
+		if ( ! $force_refresh ) {
+			$cached = get_option( $cache_key );
+			if ( ! empty( $cached ) && is_array( $cached ) ) {
+				return $cached;
+			}
+		}
+
+		// Fallback curated FAQ set from knowledge base
+		$default_faqs = array(
+			array(
+				'question' => 'How do I embed the customer chat widget on my website?',
+				'answer'   => 'Enable "Automatically inject customer chat widget" in Settings, or paste the asynchronous <script> embed tag directly into your site template.',
+				'category' => 'Widget Setup',
+				'source'   => 'Embedding Guide',
+			),
+			array(
+				'question' => 'What should I do if messages fail to send or show an error?',
+				'answer'   => 'Whitelist the /wp-json/mteja/v1/ REST routes in your firewall or security plugins (Wordfence/Cloudflare) and verify HTTPS consistency in General Settings.',
+				'category' => 'Troubleshooting',
+				'source'   => 'Troubleshooting Handbook',
+			),
+			array(
+				'question' => 'Why is the chat bubble not appearing on public pages?',
+				'answer'   => 'Purge your WordPress cache plugins (LiteSpeed/WP Rocket), verify auto-injection is enabled, and confirm your theme footer includes <?php wp_footer(); ?>.',
+				'category' => 'Troubleshooting',
+				'source'   => 'Troubleshooting Handbook',
+			),
+			array(
+				'question' => 'How can a customer or operator hand a conversation back to AI?',
+				'answer'   => 'Type /aisupport (or /ai) in the chat composer, or click "Handover to AI" in the Operations Desk header to instantly resume autonomous AI answering.',
+				'category' => 'Agent Workflow',
+				'source'   => 'Operations Desk Guide',
+			),
+			array(
+				'question' => 'What is the recommended RAG similarity threshold and how does it work?',
+				'answer'   => 'The recommended threshold is 0.70. Queries matching above 0.70 are answered autonomously from verified chunks; queries below safely offer human assistance.',
+				'category' => 'Agent Studio',
+				'source'   => 'RAG Tuning Guide',
+			),
+			array(
+				'question' => 'What happens when a customer sends a message on a resolved ticket?',
+				'answer'   => 'Mteja automatically safeguards inquiries: any new customer message reopens the ticket to active queues or notifies assigned human operators.',
+				'category' => 'Ticket Lifecycle',
+				'source'   => 'Ticket Lifecycle Guide',
+			),
+		);
+
+		if ( ! self::is_configured() ) {
+			update_option( $cache_key, $default_faqs );
+			return $default_faqs;
+		}
+
+		// Attempt AI generation from knowledge chunks
+		$api_key  = self::get_freellm_api_key();
+		$base_url = self::get_freellm_base_url();
+		$model    = self::get_freellm_chat_model();
+
+		// Fetch sample chunks from Supabase or fallback
+		$sample_chunks = array();
+		$supabase_url  = self::get_supabase_url();
+		$secret_key    = self::get_supabase_secret_key();
+
+		if ( ! empty( $supabase_url ) && ! empty( $secret_key ) ) {
+			$resp = wp_remote_get(
+				$supabase_url . '/rest/v1/document_chunks?select=content&limit=8',
+				array(
+					'headers' => array(
+						'apikey'        => $secret_key,
+						'Authorization' => 'Bearer ' . $secret_key,
+					),
+					'timeout' => 15,
+				)
+			);
+			if ( ! is_wp_error( $resp ) && 200 === wp_remote_retrieve_response_code( $resp ) ) {
+				$body = json_decode( wp_remote_retrieve_body( $resp ), true );
+				if ( is_array( $body ) ) {
+					foreach ( $body as $row ) {
+						if ( ! empty( $row['content'] ) ) {
+							$sample_chunks[] = substr( trim( $row['content'] ), 0, 800 );
+						}
+					}
+				}
+			}
+		}
+
+		if ( empty( $sample_chunks ) ) {
+			update_option( $cache_key, $default_faqs );
+			return $default_faqs;
+		}
+
+		$prompt_context = implode( "\n---\n", $sample_chunks );
+		$llm_prompt     = "You are a customer support technical analyst. Based on the following knowledge excerpts, generate exactly 6 high-value, realistic customer support FAQ items with concise 1-2 sentence answers.\n\nKnowledge Excerpts:\n" . $prompt_context . "\n\nOutput ONLY a valid JSON array of objects with keys:\n- question: (string, the question asked from a customer's perspective)\n- answer: (string, concise 1-2 sentence answer)\n- category: (string, e.g. 'Troubleshooting', 'Setup', 'Account', 'Orders')\n- source: (string, topic name)\n\nReturn raw JSON only, no markdown codeblocks, no extra explanation.";
+
+		$resp = wp_remote_post(
+			$base_url . '/chat/completions',
+			array(
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $api_key,
+					'Content-Type'  => 'application/json',
+				),
+				'body'    => wp_json_encode(
+					array(
+						'model'       => $model,
+						'messages'    => array(
+							array(
+								'role'    => 'user',
+								'content' => $llm_prompt,
+							),
+						),
+						'temperature' => 0.2,
+						'max_tokens'  => 2000,
+					)
+				),
+				'timeout' => 45,
+			)
+		);
+
+		if ( ! is_wp_error( $resp ) && 200 === wp_remote_retrieve_response_code( $resp ) ) {
+			$body = json_decode( wp_remote_retrieve_body( $resp ), true );
+			$raw  = ! empty( $body['choices'][0]['message']['content'] ) ? trim( $body['choices'][0]['message']['content'] ) : '';
+
+			// Strip code fences if present
+			$raw = preg_replace( '/^```(?:json)?\s*/i', '', $raw );
+			$raw = preg_replace( '/\s*```$/', '', $raw );
+
+			$parsed = json_decode( trim( $raw ), true );
+			if ( is_array( $parsed ) && ! empty( $parsed ) ) {
+				$clean_faqs = array();
+				foreach ( $parsed as $item ) {
+					if ( ! empty( $item['question'] ) && ! empty( $item['answer'] ) ) {
+						$clean_faqs[] = array(
+							'question' => sanitize_text_field( $item['question'] ),
+							'answer'   => sanitize_text_field( $item['answer'] ),
+							'category' => ! empty( $item['category'] ) ? sanitize_text_field( $item['category'] ) : 'General',
+							'source'   => ! empty( $item['source'] ) ? sanitize_text_field( $item['source'] ) : 'Knowledge Base',
+						);
+					}
+				}
+				if ( ! empty( $clean_faqs ) ) {
+					update_option( $cache_key, $clean_faqs );
+					return $clean_faqs;
+				}
+			}
+		}
+
+		update_option( $cache_key, $default_faqs );
+		return $default_faqs;
+	}
 }

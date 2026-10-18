@@ -7,120 +7,140 @@
       "defaultPalette": false,
       "palette": [
         {
-          "slug": "canvas",
-          "color": "#faf9f6",
-          "name": "Canvas (Warm Parchment)"
-        },
-        {
-          "slug": "surface",
-          "color": "#ffffff",
-          "name": "Surface (Crisp White Card)"
-        },
-        {
-          "slug": "surface-muted",
-          "color": "#f4f4f1",
-          "name": "Surface Muted (Bone Tag/Fills)"
-        },
-        {
-          "slug": "border",
-          "color": "#e5e5e2",
-          "name": "Border (Stone Hairline)"
-        },
-        {
-          "slug": "pitch",
-          "color": "#111111",
-          "name": "Pitch (Primary Text & CTAs)"
-        },
-        {
-          "slug": "charcoal",
-          "color": "#242424",
-          "name": "Charcoal (Body Text)"
-        },
-        {
-          "slug": "muted",
-          "color": "#71717a",
-          "name": "Muted (Secondary Ash)"
-        },
-        {
-          "slug": "emerald",
-          "color": "#10b981",
-          "name": "Emerald (Status & Verified RAG)"
-        },
-        {
           "slug": "parchment",
-          "color": "#faf9f6",
-          "name": "Parchment Legacy"
+          "color": "#f7f7f4",
+          "name": "Parchment (Canvas)"
+        },
+        {
+          "slug": "bone",
+          "color": "#f2f1ed",
+          "name": "Bone (Card/Surface)"
+        },
+        {
+          "slug": "linen",
+          "color": "#e6e5e0",
+          "name": "Linen (Secondary Fill)"
+        },
+        {
+          "slug": "stone",
+          "color": "#cdcdc9",
+          "name": "Stone (Border Hairline)"
         },
         {
           "slug": "ink",
-          "color": "#111111",
-          "name": "Ink Legacy"
+          "color": "#26251e",
+          "name": "Ink (Primary Text & CTAs)"
+        },
+        {
+          "slug": "ember",
+          "color": "#f54e00",
+          "name": "Ember (Inline Accent)"
+        },
+        {
+          "slug": "amber",
+          "color": "#c08532",
+          "name": "Amber (Action/Diagnostics)"
+        },
+        {
+          "slug": "forest",
+          "color": "#34785c",
+          "name": "Forest (Resolution/Success)"
+        },
+        {
+          "slug": "ash",
+          "color": "#7a7974",
+          "name": "Ash (Muted Foreground)"
+        },
+        {
+          "slug": "driftwood",
+          "color": "#84847e",
+          "name": "Driftwood (Secondary Body)"
+        },
+        {
+          "slug": "mist",
+          "color": "#a1a19f",
+          "name": "Mist (Helper Text)"
         }
       ]
     },
     "typography": {
       "fontFamilies": [
         {
-          "fontFamily": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-          "slug": "sans",
-          "name": "Inter / Sans"
+          "fontFamily": "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          "slug": "primary",
+          "name": "Cursor Primary"
         },
         {
-          "fontFamily": "'JetBrains Mono', Menlo, Consolas, monospace",
+          "fontFamily": "'JetBrains Mono', monospace",
           "slug": "mono",
-          "name": "JetBrains Mono"
+          "name": "Cursor Mono"
+        },
+        {
+          "fontFamily": "'EB Garamond', Georgia, serif",
+          "slug": "serif",
+          "name": "Cursor Serif"
         }
       ],
       "fontSizes": [
         {
+          "slug": "tag",
+          "size": "12px",
+          "name": "Eyebrow / Tag"
+        },
+        {
           "slug": "small",
-          "size": "13px",
-          "name": "Small"
+          "size": "14px",
+          "name": "Body Small"
         },
         {
           "slug": "medium",
-          "size": "15px",
-          "name": "Medium"
+          "size": "16px",
+          "name": "Body Regular"
         },
         {
-          "slug": "large",
+          "slug": "heading-sm",
           "size": "22px",
           "name": "Heading SM"
         },
         {
-          "slug": "x-large",
-          "size": "32px",
+          "slug": "heading-md",
+          "size": "26px",
+          "name": "Heading MD"
+        },
+        {
+          "slug": "heading-lg",
+          "size": "36px",
           "name": "Heading LG"
         },
         {
-          "slug": "hero",
-          "size": "clamp(34px, 5.2vw, 54px)",
-          "name": "Hero Display"
+          "slug": "display-hero",
+          "size": "clamp(38px, 6vw, 72px)",
+          "name": "Display Hero"
         }
       ]
     },
     "layout": {
-      "contentSize": "820px",
-      "wideSize": "1200px"
+      "contentSize": "860px",
+      "wideSize": "1240px"
     }
   },
   "styles": {
     "color": {
-      "background": "var(--wp--preset--color--canvas)",
-      "text": "var(--wp--preset--color--pitch)"
+      "background": "var(--wp--preset--color--parchment)",
+      "text": "var(--wp--preset--color--ink)"
     },
     "typography": {
-      "fontFamily": "var(--wp--preset--font-family--sans)",
+      "fontFamily": "var(--wp--preset--font-family--primary)",
       "lineHeight": "1.5"
     },
     "elements": {
       "button": {
         "color": {
-          "background": "var(--wp--preset--color--pitch)",
-          "text": "var(--wp--preset--color--surface)"
+          "background": "var(--wp--preset--color--ink)",
+          "text": "var(--wp--preset--color--parchment)"
         },
         "border": {
-          "radius": "9999px"
+          "radius": "4px"
         }
       }
     }

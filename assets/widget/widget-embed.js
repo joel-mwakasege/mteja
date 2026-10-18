@@ -129,27 +129,28 @@
     if (!root) return;
 
     root.innerHTML = `
-      <div class="flex flex-col h-screen w-screen bg-[#FAF9F6] font-sans text-[13px] text-[#111111]">
+      <div class="flex flex-col h-[100dvh] w-screen bg-[#f7f7f4] font-sans text-[13px] text-[#26251e]" style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;">
         <!-- Top Header -->
-        <header class="p-3.5 bg-white border-b border-[#E5E5E2] flex items-center justify-between" id="widget-header">
+        <header class="p-3.5 bg-[#f2f1ed] border-b border-[#cdcdc9] flex items-center justify-between" id="widget-header">
         </header>
 
         <!-- Message Feed -->
-        <main class="flex-1 overflow-y-auto p-4 space-y-3" id="widget-msg-list">
+        <main class="flex-1 overflow-y-auto p-4 space-y-3" id="widget-msg-list" style="overscroll-behavior: contain;">
           ${renderMessageHTML()}
         </main>
 
         <!-- Composer -->
-        <footer class="p-3 bg-white border-t border-[#E5E5E2] flex gap-2 items-center">
+        <footer class="p-3 bg-[#f2f1ed] border-t border-[#cdcdc9] flex gap-2 items-center">
           <input 
             type="text" 
             id="widget-input"
-            class="flex-1 px-3 py-2 rounded-sm border border-[#E5E5E2] bg-[#FAF9F6] text-xs focus:outline-none focus:border-[#111111] focus:bg-white transition-colors"
+            class="flex-1 px-3 py-2 rounded-sm border border-[#cdcdc9] bg-[#f7f7f4] text-xs focus:outline-none focus:border-[#26251e] focus:bg-white transition-colors"
             placeholder="Write your message..." />
           <button 
             type="button"
             id="widget-send-btn"
-            class="w-8 h-8 rounded-sm bg-[#111111] text-white flex items-center justify-center hover:bg-black transition-transform active:scale-95 disabled:opacity-50 cursor-pointer">
+            style="transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background-color 150ms ease;"
+            class="w-8 h-8 rounded-sm bg-[#26251e] text-[#f7f7f4] flex items-center justify-center hover:bg-black active:scale-[0.97] disabled:opacity-50 cursor-pointer shadow-xs">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M5 12h14M12 5l7 7-7 7"></path>
             </svg>
@@ -168,8 +169,8 @@
       const senderLabel = isUser ? 'You' : (m.sender_type === 'ai' ? 'Support AI' : 'Specialist');
       return `
         <div class="flex flex-col ${isUser ? 'items-end' : 'items-start'}">
-          <span class="text-[10px] font-mono text-muted mb-0.5 px-1">${senderLabel}</span>
-          <div class="max-w-[85%] p-3 rounded-sm leading-relaxed ${isUser ? 'bg-[#111111] text-white' : 'bg-white border border-[#E5E5E2] text-[#242424] shadow-xs'}">
+          <span class="text-[10px] font-mono text-[#7a7974] mb-0.5 px-1">${senderLabel}</span>
+          <div class="max-w-[85%] p-3 rounded-sm leading-relaxed ${isUser ? 'bg-[#26251e] text-[#f7f7f4]' : 'bg-[#f2f1ed] border border-[#cdcdc9] text-[#26251e] shadow-xs'}">
             ${escapeHtml(m.content)}
           </div>
         </div>

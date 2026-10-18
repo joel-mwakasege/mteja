@@ -54,7 +54,10 @@
     settingsSaving: false,
     settingsTesting: false,
     settingsTestResult: null,
-    settingsSavedNotice: null,
+    faqs: [],
+    faqsLoading: false,
+    faqsGenerating: false,
+    expandedChunkIdx: null,
     showSecretKey: false,
     showDbPassword: false,
     showOpenAiKey: false,
@@ -103,7 +106,9 @@
       state.workspace = ws;
       state.studioSettings.name = ws.name || state.studioSettings.name;
       state.studioSettings.systemPrompt = ws.system_prompt || state.studioSettings.systemPrompt;
-      state.studioSettings.threshold = ws.similarity_threshold || 0.70;
+      state.studioSettings.threshold = ws.similarity_threshold !== undefined ? ws.similarity_threshold : 0.70;
+      state.studioSettings.allowedDomains = ws.allowed_domains || window.location.origin;
+      state.studioSettings.offlineEmail = ws.offline_email !== undefined ? Boolean(ws.offline_email) : true;
     }
 
     const docs = await api('knowledge');
@@ -111,8 +116,28 @@
       state.knowledgeDocs = docs;
     }
 
+    loadFaqs(false);
+
     render();
     startPolling();
+  }
+
+  async function loadFaqs(force = false) {
+    if (force) {
+      state.faqsGenerating = true;
+    } else {
+      state.faqsLoading = true;
+    }
+    render();
+    const endpoint = force ? 'kb/faqs/generate' : 'kb/faqs';
+    const method = force ? 'POST' : 'GET';
+    const res = await api(endpoint, { method });
+    state.faqsLoading = false;
+    state.faqsGenerating = false;
+    if (res && Array.isArray(res.faqs)) {
+      state.faqs = res.faqs;
+    }
+    render();
   }
 
   async function loadConversationDetails(id) {
@@ -463,10 +488,12 @@
               ` : ''}
               <button 
                 type="button"
-                class="interactive-btn px-3 py-1 rounded-sm bg-forest-action text-white hover:opacity-90 font-medium text-[12px] flex items-center gap-1 transition-all shadow-xs cursor-pointer" 
-                id="btn-resolve">
+                class="mteja-hold-btn interactive-btn relative px-3 py-1 rounded-sm bg-forest-action text-white hover:opacity-95 font-medium text-[12px] flex items-center gap-1.5 transition-all shadow-xs cursor-pointer select-none overflow-hidden" 
+                id="btn-resolve"
+                title="Press and hold 1.2s to resolve ticket">
+                <span class="mteja-hold-progress-fill absolute inset-0 bg-white/25 pointer-events-none" id="resolve-fill" style="width: ${state.holdProgress}%"></span>
                 <span class="material-symbols-outlined text-[14px]">check</span>
-                <span>Resolve Ticket</span>
+                <span id="resolve-text">${state.holdProgress > 0 ? `Holding (${state.holdProgress}%)...` : 'Hold to Resolve'}</span>
               </button>
             `}
           </div>
@@ -723,7 +750,8 @@
 
   // 4. AGENT STUDIO & LIVE PREVIEW VIEW
   function renderStudioView() {
-    const embedCode = `<script src="${bootstrap.siteUrl}/wp-content/plugins/mteja/assets/widget/widget.js" data-workspace-id="${bootstrap.workspaceId}" async defer></script>`;
+    const allowed = state.studioSettings.allowedDomains || window.location.origin;
+    const embedCode = `<script src="${bootstrap.siteUrl}/wp-content/plugins/mteja/assets/widget/widget.js" data-workspace-id="${bootstrap.workspaceId}" data-allowed-origins="${escapeHtml(allowed)}" async defer></script>`;
 
     return `
       <div class="flex h-full w-full overflow-hidden bg-canvas">
@@ -731,7 +759,7 @@
         <div class="w-[520px] flex-shrink-0 flex flex-col bg-surface border-r border-border overflow-y-auto p-6 space-y-6">
           <div>
             <h2 class="text-xl font-medium tracking-tight text-pitch">Agent Studio & Tuning</h2>
-            <p class="text-xs text-muted mt-1">Configure bot persona, similarity threshold, and allowed domains.</p>
+            <p class="text-xs text-muted mt-1">Configure persona, guardrails, and pgvector cosine threshold with zero-save live preview.</p>
           </div>
 
           <div class="space-y-4">
@@ -750,6 +778,15 @@
                 <label class="text-xs font-semibold text-pitch">Persona & Boundaries (System Prompt)</label>
                 <span class="text-[10px] font-mono text-muted">Markdown Supported</span>
               </div>
+
+              <!-- Quick Presets -->
+              <div class="flex items-center gap-1.5 flex-wrap pb-1">
+                <span class="text-[10.5px] text-muted font-medium">Presets:</span>
+                <button type="button" class="px-2 py-0.5 rounded-xs bg-surface-subtle hover:bg-stone/30 border border-border text-[10px] font-medium text-pitch cursor-pointer transition-colors btn-studio-preset" data-preset="warm">Warm Support</button>
+                <button type="button" class="px-2 py-0.5 rounded-xs bg-surface-subtle hover:bg-stone/30 border border-border text-[10px] font-medium text-pitch cursor-pointer transition-colors btn-studio-preset" data-preset="technical">Technical & Precise</button>
+                <button type="button" class="px-2 py-0.5 rounded-xs bg-surface-subtle hover:bg-stone/30 border border-border text-[10px] font-medium text-pitch cursor-pointer transition-colors btn-studio-preset" data-preset="retail">Concise Attendant</button>
+              </div>
+
               <textarea 
                 class="w-full h-32 p-3 rounded-sm border border-border bg-white text-pitch font-sans text-xs focus:outline-none focus:border-pitch resize-none leading-relaxed" 
                 id="studio-prompt-input">${escapeHtml(state.studioSettings.systemPrompt)}</textarea>
@@ -769,23 +806,49 @@
               <div class="flex justify-between text-[10px] text-muted font-mono">
                 <span>0.50 (Loose)</span>
                 <span>0.70 (Recommended)</span>
-                <span>0.95 (Strict)</span>
+                <span>0.95 (Strict Guardrail)</span>
               </div>
+            </div>
+
+            <!-- Offline Email / Lead Capture Toggle -->
+            <div class="p-3 rounded-sm bg-surface-subtle border border-border flex items-center justify-between">
+              <div>
+                <div class="text-xs font-semibold text-pitch">Offline Email & Lead Capture</div>
+                <div class="text-[10.5px] text-muted">Prompt visitor for email address before human handoff or outside hours.</div>
+              </div>
+              <input 
+                type="checkbox" 
+                id="studio-offline-email" 
+                class="w-4 h-4 rounded-xs border-border accent-pitch cursor-pointer" 
+                ${state.studioSettings.offlineEmail ? 'checked' : ''} />
+            </div>
+
+            <!-- Allowed Domains Whitelist -->
+            <div class="space-y-1.5">
+              <div class="flex justify-between items-center">
+                <label class="text-xs font-semibold text-pitch">Allowed Embed Domains</label>
+                <span class="text-[10px] font-mono text-muted">Comma-separated</span>
+              </div>
+              <input 
+                class="w-full h-8 px-3 rounded-sm border border-border bg-white text-pitch text-xs focus:outline-none focus:border-pitch font-mono" 
+                id="studio-allowed-domains"
+                placeholder="https://example.com, https://store.example.com"
+                value="${escapeHtml(state.studioSettings.allowedDomains)}" />
             </div>
 
             <!-- Embed Code Generator -->
             <div class="space-y-1.5">
               <div class="flex justify-between items-center">
                 <label class="text-xs font-semibold text-pitch">Embed Snippet (External Websites)</label>
-                <button class="text-xs text-muted hover:text-pitch font-medium" onclick="navigator.clipboard.writeText('${escapeHtml(embedCode)}'); alert('Embed snippet copied!');">Copy Snippet</button>
+                <button type="button" class="text-xs text-muted hover:text-pitch font-medium cursor-pointer" id="btn-copy-snippet">Copy Snippet</button>
               </div>
-              <div class="p-2.5 rounded-sm bg-surface-subtle border border-border font-mono text-[11px] text-charcoal-text break-all">
+              <div class="p-2.5 rounded-sm bg-surface-subtle border border-border font-mono text-[11px] text-charcoal-text break-all" id="studio-snippet-box">
                 ${escapeHtml(embedCode)}
               </div>
             </div>
 
             <button 
-              class="interactive-btn w-full py-2 rounded-sm bg-pitch text-white font-medium text-xs hover:bg-black transition-all shadow-sm"
+              class="interactive-btn w-full py-2 rounded-sm bg-pitch text-white font-medium text-xs hover:bg-black transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
               id="btn-save-studio">
               Save Configuration
             </button>
@@ -794,22 +857,58 @@
 
         <!-- Right: Interactive Live Sandbox Preview -->
         <div class="flex-1 flex flex-col items-center justify-center p-8 bg-canvas">
-          <div class="w-[380px] h-[580px] bg-white border border-border rounded-sm shadow-xl flex flex-col overflow-hidden">
+          <div class="w-[420px] h-[620px] bg-white border border-border rounded-sm shadow-xl flex flex-col overflow-hidden">
             <!-- Sandbox Header -->
-            <div class="p-3.5 bg-pitch text-white flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-                <span class="font-medium text-xs">${state.studioSettings.name}</span>
+            <div class="p-3.5 bg-pitch text-white flex items-center justify-between border-b border-pitch">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                <span class="font-medium text-xs truncate max-w-[190px]" id="sandbox-header-name">${escapeHtml(state.studioSettings.name)}</span>
+                <span class="px-1.5 py-0.2 rounded-xs bg-white/10 text-[9px] font-mono text-white/80">Live Sandbox</span>
               </div>
-              <span class="text-[10px] font-mono text-white/60">Live Preview</span>
+              <button 
+                type="button" 
+                class="text-[11px] text-white/70 hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
+                id="sandbox-reset-btn"
+                title="Reset preview conversation">
+                <span class="material-symbols-outlined text-[14px]">restart_alt</span>
+                <span>Reset</span>
+              </button>
             </div>
 
             <!-- Sandbox Message Stream -->
             <div class="flex-1 p-4 overflow-y-auto space-y-3 bg-canvas text-xs" id="sandbox-messages">
-              ${state.livePreviewMessages.map(m => `
+              ${state.livePreviewMessages.map((m, idx) => `
                 <div class="flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}">
-                  <div class="max-w-[85%] p-3 rounded-sm ${m.sender === 'user' ? 'bg-pitch text-white' : 'bg-white border border-border text-pitch'}">
-                    ${escapeHtml(m.text)}
+                  <div class="max-w-[88%] space-y-1.5">
+                    <div class="p-3 rounded-sm ${m.sender === 'user' ? 'bg-pitch text-parchment' : 'bg-bone border border-stone text-pitch'}">
+                      ${escapeHtml(m.text)}
+                    </div>
+                    ${m.chunks && m.chunks.length > 0 ? `
+                      <div class="p-2 rounded-xs bg-surface border border-stone text-[10.5px] space-y-1">
+                        <div class="flex items-center justify-between">
+                          <span class="inline-flex items-center gap-1 font-mono font-semibold ${m.passedThreshold ? 'text-forest-action' : 'text-amber-action'}">
+                            <span class="w-1.5 h-1.5 rounded-full ${m.passedThreshold ? 'bg-forest-action' : 'bg-amber-action'}"></span>
+                            ${m.passedThreshold ? 'Passes Guardrail' : 'Below Threshold'} (${((m.similarity || 0) * 100).toFixed(0)}% vs ${((m.threshold || 0) * 100).toFixed(0)}%)
+                          </span>
+                          <button type="button" class="text-muted hover:text-pitch font-mono underline cursor-pointer toggle-chunks-btn" data-idx="${idx}">
+                            ${state.expandedChunkIdx === idx ? 'Hide Sources' : `Sources (${m.chunks.length})`}
+                          </button>
+                        </div>
+                        ${state.expandedChunkIdx === idx ? `
+                          <div class="pt-1.5 border-t border-border space-y-1.5 font-mono text-[10px] text-charcoal-text">
+                            ${m.chunks.map((c, cIdx) => `
+                              <div class="p-1.5 bg-canvas rounded-xs border border-border/80">
+                                <div class="text-muted font-bold flex justify-between">
+                                  <span>Chunk #${cIdx + 1}</span>
+                                  <span>Score: ${(c.similarity * 100).toFixed(1)}%</span>
+                                </div>
+                                <div class="mt-0.5 text-pitch leading-relaxed">${escapeHtml(c.content)}</div>
+                              </div>
+                            `).join('')}
+                          </div>
+                        ` : ''}
+                      </div>
+                    ` : ''}
                   </div>
                 </div>
               `).join('')}
@@ -822,14 +921,14 @@
                 placeholder="Ask preview bot..." 
                 id="sandbox-input" />
               <button 
-                class="px-3 py-1.5 rounded-sm bg-pitch text-white text-xs font-medium"
+                class="px-3 py-1.5 rounded-sm bg-pitch text-white text-xs font-medium cursor-pointer"
                 id="sandbox-send-btn">
                 Send
               </button>
             </div>
           </div>
           <div class="text-[11px] text-muted mt-3 font-mono">
-            Preview reflects changes in real-time.
+            Preview reflects changes in real-time with zero save latency.
           </div>
         </div>
       </div>
@@ -992,6 +1091,60 @@
               `).join('')}
             </tbody>
           </table>
+        </div>
+
+        <!-- Auto-Generated FAQ Knowledge Cards (Section 6.3 of DESIGN.md) -->
+        <div class="bg-surface border border-border rounded-sm overflow-hidden shadow-xs space-y-4 p-5">
+          <div class="flex items-center justify-between border-b border-border pb-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-[18px] text-amber-action">quiz</span>
+                <h3 class="text-sm font-semibold text-pitch">Auto-Generated FAQs & Knowledge Cards</h3>
+              </div>
+              <p class="text-xs text-muted mt-0.5">Synthesized from your indexed documents. Click any card to test retrieval in the Live Playground.</p>
+            </div>
+            <button 
+              type="button" 
+              class="interactive-btn px-3 py-1.5 rounded-sm bg-surface-subtle hover:bg-stone/30 border border-border text-pitch text-xs font-medium flex items-center gap-1.5 cursor-pointer shadow-xs"
+              id="btn-regenerate-faqs"
+              ${state.faqsGenerating ? 'disabled' : ''}>
+              <span class="material-symbols-outlined text-[15px] ${state.faqsGenerating ? 'animate-spin' : ''}">sync</span>
+              <span>${state.faqsGenerating ? 'Synthesizing FAQs...' : 'Regenerate FAQs'}</span>
+            </button>
+          </div>
+
+          <!-- FAQ Cards Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5" id="kb-faqs-grid">
+            ${state.faqs.length === 0 ? `
+              <div class="col-span-2 py-8 text-center text-xs text-muted">
+                ${state.faqsLoading ? 'Loading synthesized knowledge FAQs...' : 'No FAQs generated yet. Click "Regenerate FAQs" to synthesize cards from your documents.'}
+              </div>
+            ` : state.faqs.map(faq => `
+              <div class="p-4 rounded-sm bg-canvas border border-border hover:border-pitch transition-all duration-150 flex flex-col justify-between gap-3 group shadow-xs">
+                <div class="space-y-1.5">
+                  <div class="flex items-center justify-between text-[10px] font-mono">
+                    <span class="px-2 py-0.5 rounded-xs bg-surface-subtle border border-border text-charcoal-text font-semibold uppercase">${escapeHtml(faq.category || 'General')}</span>
+                    <span class="text-muted truncate max-w-[140px]">${escapeHtml(faq.source || 'Knowledge Base')}</span>
+                  </div>
+                  <div class="font-medium text-xs text-pitch leading-snug group-hover:text-ember transition-colors">
+                    ${escapeHtml(faq.question)}
+                  </div>
+                  <div class="text-[11.5px] text-driftwood leading-relaxed line-clamp-3">
+                    ${escapeHtml(faq.answer)}
+                  </div>
+                </div>
+                <div class="pt-2 border-t border-border/60 flex justify-end">
+                  <button 
+                    type="button" 
+                    class="interactive-btn px-2.5 py-1 rounded-sm bg-surface border border-border hover:bg-pitch hover:text-white text-pitch text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-all btn-test-faq"
+                    data-question="${escapeHtml(faq.question)}">
+                    <span>Test in Playground</span>
+                    <span class="material-symbols-outlined text-[13px]">arrow_forward</span>
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
         </div>
       </div>
     `;
@@ -1401,19 +1554,43 @@
     if (globalDelegationAttached) return;
     globalDelegationAttached = true;
 
-    // 1. Synchronize composer text dynamically on every input
+    // 1. Synchronize inputs dynamically
     document.addEventListener('input', (e) => {
-      if (e.target && e.target.id === 'composer-textarea') {
+      if (!e.target) return;
+      if (e.target.id === 'composer-textarea') {
         state.composerText = e.target.value;
+      } else if (e.target.id === 'studio-name-input') {
+        state.studioSettings.name = e.target.value;
+        const headerName = document.getElementById('sandbox-header-name');
+        if (headerName) headerName.textContent = e.target.value || 'Support Agent';
+      } else if (e.target.id === 'studio-prompt-input') {
+        state.studioSettings.systemPrompt = e.target.value;
+      } else if (e.target.id === 'studio-allowed-domains') {
+        state.studioSettings.allowedDomains = e.target.value;
+        const snippetBox = document.getElementById('studio-snippet-box');
+        if (snippetBox) {
+          const allowed = state.studioSettings.allowedDomains || window.location.origin;
+          snippetBox.textContent = `<script src="${bootstrap.siteUrl}/wp-content/plugins/mteja/assets/widget/widget.js" data-workspace-id="${bootstrap.workspaceId}" data-allowed-origins="${allowed}" async defer></script>`;
+        }
       }
     });
 
-    // 2. Keyboard shortcut Cmd/Ctrl + Enter to send reply
+    // 1b. Synchronize checkbox state
+    document.addEventListener('change', (e) => {
+      if (e.target && e.target.id === 'studio-offline-email') {
+        state.studioSettings.offlineEmail = e.target.checked;
+      }
+    });
+
+    // 2. Keyboard shortcuts (Cmd/Ctrl + Enter in composer, Enter in sandbox)
     document.addEventListener('keydown', (e) => {
       if (e.target && e.target.id === 'composer-textarea' && (e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         const sendBtn = document.getElementById('btn-send-reply');
         if (sendBtn) sendBtn.click();
+      } else if (e.target && e.target.id === 'sandbox-input' && e.key === 'Enter') {
+        e.preventDefault();
+        handleSandboxSend();
       }
     });
 
@@ -1554,7 +1731,207 @@
         await loadConversationDetails(state.selectedConvId);
         return;
       }
+
+      // (g) Test FAQ in Live Playground
+      const btnTestFaq = e.target.closest('.btn-test-faq');
+      if (btnTestFaq) {
+        e.preventDefault();
+        const question = btnTestFaq.getAttribute('data-question');
+        if (question) {
+          state.currentTab = 'studio';
+          render();
+          handleSandboxSend(question);
+        }
+        return;
+      }
+
+      // (h) Toggle Retrieved Chunks Inspector
+      const btnToggleChunks = e.target.closest('.toggle-chunks-btn');
+      if (btnToggleChunks) {
+        e.preventDefault();
+        const idx = parseInt(btnToggleChunks.getAttribute('data-idx'), 10);
+        state.expandedChunkIdx = (state.expandedChunkIdx === idx) ? null : idx;
+        render();
+        return;
+      }
+
+      // (i) Studio Persona Presets
+      const btnPreset = e.target.closest('.btn-studio-preset');
+      if (btnPreset) {
+        e.preventDefault();
+        const preset = btnPreset.getAttribute('data-preset');
+        if (preset === 'warm') {
+          state.studioSettings.systemPrompt = "You are Mteja, an autonomous, courteous customer support specialist for " + bootstrap.siteName + ".\n\nYour primary mission is to help customers quickly and accurately using verified knowledge base facts.\n\nGuidelines:\n1. GREETINGS: Respond warmly to greetings ('hi', 'hello') and introduce yourself. Never escalate on greetings.\n2. GROUNDED: Base answers strictly on the knowledge base facts provided. Keep replies concise (2-4 sentences).\n3. ESCALATION: Offer human assistance politely when the customer requests an operator or for unlisted account matters.";
+        } else if (preset === 'technical') {
+          state.studioSettings.systemPrompt = "You are a technical support diagnostic specialist for " + bootstrap.siteName + ".\n\nDirectives:\n1. DIAGNOSIS FIRST: When troubleshooting, verify the symptom, provide immediate checks (firewall, cache, HTTPS), and explain technical causes directly.\n2. CONCISENESS: Output clean 3-4 item bullet points with clear bold actions.\n3. NO PARROTING: Synthesize information in your own clear words without repeating raw documentation blocks.";
+        } else if (preset === 'retail') {
+          state.studioSettings.systemPrompt = "You are the customer assistant for " + bootstrap.siteName + ".\n\nProvide rapid, friendly answers regarding store orders, shipping, return windows, and product questions. Keep replies to 2-3 short sentences. If an order cannot be found, ask for the order number or offer to connect with staff.";
+        }
+        render();
+        return;
+      }
+
+      // (j) Sandbox Reset Chat
+      const btnResetSandbox = e.target.closest('#sandbox-reset-btn');
+      if (btnResetSandbox) {
+        e.preventDefault();
+        state.livePreviewMessages = [
+          { sender: 'ai', text: 'Hello! How can I assist you with ' + bootstrap.siteName + ' today?' }
+        ];
+        state.expandedChunkIdx = null;
+        render();
+        return;
+      }
+
+      // (k) Regenerate FAQs
+      const btnRegen = e.target.closest('#btn-regenerate-faqs');
+      if (btnRegen) {
+        e.preventDefault();
+        await loadFaqs(true);
+        return;
+      }
+
+      // (l) Copy Embed Snippet
+      const btnCopySnippet = e.target.closest('#btn-copy-snippet');
+      if (btnCopySnippet) {
+        e.preventDefault();
+        const snippetEl = document.getElementById('studio-snippet-box');
+        if (snippetEl) {
+          navigator.clipboard.writeText(snippetEl.innerText.trim());
+          const orig = btnCopySnippet.textContent;
+          btnCopySnippet.textContent = 'Copied!';
+          setTimeout(() => { if (btnCopySnippet) btnCopySnippet.textContent = orig; }, 2000);
+        }
+        return;
+      }
+
+      // (m) Sandbox Send Button
+      const btnSandboxSend = e.target.closest('#sandbox-send-btn');
+      if (btnSandboxSend) {
+        e.preventDefault();
+        handleSandboxSend();
+        return;
+      }
     });
+  }
+
+  // Live Sandbox Send Handler
+  async function handleSandboxSend(overrideQuery = null) {
+    const sandboxInput = document.getElementById('sandbox-input');
+    const val = (overrideQuery || (sandboxInput ? sandboxInput.value : '')).trim();
+    if (!val) return;
+
+    state.livePreviewMessages.push({ sender: 'user', text: val });
+    state.livePreviewMessages.push({ sender: 'ai', text: 'Consulting pgvector knowledge base...', pending: true });
+    if (sandboxInput) sandboxInput.value = '';
+    render();
+
+    const box = document.getElementById('sandbox-messages');
+    if (box) box.scrollTop = box.scrollHeight;
+
+    try {
+      const historyPayload = state.livePreviewMessages
+        .filter(m => !m.pending)
+        .map(m => ({
+          sender_type: m.sender === 'user' ? 'visitor' : 'ai',
+          content: m.text
+        }));
+
+      const res = await api('studio/test-rag', {
+        method: 'POST',
+        body: JSON.stringify({
+          query: val,
+          system_prompt: state.studioSettings.systemPrompt,
+          threshold: state.studioSettings.threshold,
+          history: historyPayload
+        })
+      });
+
+      state.livePreviewMessages = state.livePreviewMessages.filter(m => !m.pending);
+      if (res && res.reply) {
+        state.livePreviewMessages.push({
+          sender: 'ai',
+          text: res.reply,
+          similarity: res.similarity,
+          threshold: res.threshold,
+          passedThreshold: res.passed_threshold,
+          chunks: res.chunks || []
+        });
+      } else {
+        state.livePreviewMessages.push({
+          sender: 'ai',
+          text: '[System]: No response received from RAG engine.'
+        });
+      }
+    } catch (err) {
+      state.livePreviewMessages = state.livePreviewMessages.filter(m => !m.pending);
+      state.livePreviewMessages.push({
+        sender: 'ai',
+        text: '[Error]: Failed to query test RAG endpoint.'
+      });
+    }
+    render();
+    const box2 = document.getElementById('sandbox-messages');
+    if (box2) box2.scrollTop = box2.scrollHeight;
+  }
+
+  // Emil Kowalski Asymmetric Hold-to-Resolve Pattern
+  let holdInterval = null;
+  let holdStartTime = 0;
+
+  function initHoldToResolve() {
+    const btnResolve = document.getElementById('btn-resolve');
+    if (!btnResolve || !state.selectedConvId) return;
+
+    const startHold = (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      holdStartTime = Date.now();
+      btnResolve.classList.add('holding');
+
+      if (holdInterval) clearInterval(holdInterval);
+      holdInterval = setInterval(async () => {
+        const elapsed = Date.now() - holdStartTime;
+        const progress = Math.min(100, Math.round((elapsed / 1100) * 100));
+        state.holdProgress = progress;
+
+        const fill = document.getElementById('resolve-fill');
+        const text = document.getElementById('resolve-text');
+        if (fill) fill.style.width = progress + '%';
+        if (text) text.textContent = progress >= 100 ? 'Resolving...' : `Holding (${progress}%)...`;
+
+        if (progress >= 100) {
+          clearInterval(holdInterval);
+          holdInterval = null;
+          btnResolve.disabled = true;
+          await api(`conversations/${state.selectedConvId}/resolve`, { method: 'POST' });
+          state.holdProgress = 0;
+          const convs = await api(`conversations?filter=${state.queueFilter}&search=${encodeURIComponent(state.searchQuery)}`);
+          if (convs && Array.isArray(convs)) state.conversations = convs;
+          await loadConversationDetails(state.selectedConvId);
+        }
+      }, 40);
+    };
+
+    const cancelHold = () => {
+      if (holdInterval) {
+        clearInterval(holdInterval);
+        holdInterval = null;
+      }
+      if (state.holdProgress > 0 && state.holdProgress < 100) {
+        state.holdProgress = 0;
+        const fill = document.getElementById('resolve-fill');
+        const text = document.getElementById('resolve-text');
+        if (fill) fill.style.width = '0%';
+        if (text) text.textContent = 'Hold to Resolve';
+      }
+      btnResolve.classList.remove('holding');
+    };
+
+    btnResolve.addEventListener('mousedown', startHold);
+    btnResolve.addEventListener('touchstart', startHold, { passive: true });
+    btnResolve.addEventListener('mouseup', cancelHold);
+    btnResolve.addEventListener('mouseleave', cancelHold);
+    btnResolve.addEventListener('touchend', cancelHold);
   }
 
   // =========================================================================
@@ -1618,54 +1995,38 @@
       btnSaveStudio.addEventListener('click', async () => {
         const nameInput = document.getElementById('studio-name-input');
         const promptInput = document.getElementById('studio-prompt-input');
+        const allowedInput = document.getElementById('studio-allowed-domains');
+        const offlineCheck = document.getElementById('studio-offline-email');
+
         if (nameInput) state.studioSettings.name = nameInput.value;
         if (promptInput) state.studioSettings.systemPrompt = promptInput.value;
+        if (allowedInput) state.studioSettings.allowedDomains = allowedInput.value;
+        if (offlineCheck) state.studioSettings.offlineEmail = offlineCheck.checked;
+
+        btnSaveStudio.disabled = true;
+        btnSaveStudio.innerHTML = `<span class="material-symbols-outlined text-[14px] animate-spin">sync</span><span>Saving...</span>`;
 
         await api(`workspaces/${state.workspace.id}`, {
           method: 'PUT',
           body: JSON.stringify({
             name: state.studioSettings.name,
             system_prompt: state.studioSettings.systemPrompt,
-            similarity_threshold: state.studioSettings.threshold
+            similarity_threshold: state.studioSettings.threshold,
+            allowed_domains: state.studioSettings.allowedDomains,
+            offline_email: state.studioSettings.offlineEmail
           })
         });
 
-        alert('Agent Studio configuration saved!');
+        btnSaveStudio.disabled = false;
+        btnSaveStudio.innerHTML = `<span class="material-symbols-outlined text-[14px]">check</span><span>Saved</span>`;
+        setTimeout(() => {
+          if (btnSaveStudio) btnSaveStudio.innerHTML = `Save Configuration`;
+        }, 2000);
       });
     }
 
-    // Live Sandbox Events
-    const sandboxInput = document.getElementById('sandbox-input');
-    const sandboxSendBtn = document.getElementById('sandbox-send-btn');
-    if (sandboxInput && sandboxSendBtn) {
-      const handleSandboxSend = async () => {
-        const val = sandboxInput.value.trim();
-        if (!val) return;
-        state.livePreviewMessages.push({ sender: 'user', text: val });
-        state.livePreviewMessages.push({ sender: 'ai', text: 'Searching knowledge chunks...', pending: true });
-        sandboxInput.value = '';
-        render();
-
-        try {
-          const res = await api('studio/test-rag', {
-            method: 'POST',
-            body: JSON.stringify({ query: val })
-          });
-          state.livePreviewMessages = state.livePreviewMessages.filter(m => !m.pending);
-          if (res && res.reply) {
-            state.livePreviewMessages.push({ sender: 'ai', text: res.reply });
-          } else {
-            state.livePreviewMessages.push({ sender: 'ai', text: '[System]: No response received from RAG engine.' });
-          }
-        } catch (err) {
-          state.livePreviewMessages = state.livePreviewMessages.filter(m => !m.pending);
-          state.livePreviewMessages.push({ sender: 'ai', text: '[Error]: Failed to query test RAG endpoint.' });
-        }
-        render();
-      };
-      sandboxSendBtn.addEventListener('click', handleSandboxSend);
-      sandboxInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleSandboxSend(); });
-    }
+    // Emil Kowalski Asymmetric Hold-to-Resolve
+    initHoldToResolve();
 
     // Knowledge Dropzone & Multi-File Drag-and-Drop
     const dropzone = document.getElementById('kb-dropzone');

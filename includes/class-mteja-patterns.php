@@ -18,6 +18,24 @@ class Mteja_Patterns {
 		add_action( 'init', array( __CLASS__, 'register_patterns' ) );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_tokens' ) );
 		add_action( 'enqueue_block_editor_assets', array( __CLASS__, 'enqueue_editor_tokens' ) );
+		add_filter( 'wp_theme_json_data_default', array( __CLASS__, 'filter_theme_json' ) );
+	}
+
+	/**
+	 * Inject Mteja Warm Parchment Atelier palette into WordPress Block Editor.
+	 *
+	 * @param WP_Theme_JSON_Data $theme_json Core theme json instance.
+	 * @return WP_Theme_JSON_Data
+	 */
+	public static function filter_theme_json( $theme_json ) {
+		$theme_json_file = dirname( dirname( __FILE__ ) ) . '/assets/theme.json';
+		if ( file_exists( $theme_json_file ) && class_exists( 'WP_Theme_JSON_Data' ) ) {
+			$data = json_decode( file_get_contents( $theme_json_file ), true );
+			if ( ! empty( $data ) && is_array( $data ) ) {
+				$theme_json->update_with( $data );
+			}
+		}
+		return $theme_json;
 	}
 
 	/**

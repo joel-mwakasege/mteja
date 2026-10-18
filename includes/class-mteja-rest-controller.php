@@ -234,6 +234,26 @@ class Mteja_Rest_Controller {
 			)
 		);
 
+		// 10b. Knowledge Base Auto-Generated FAQs
+		register_rest_route(
+			self::NAMESPACE,
+			'/kb/faqs',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'get_kb_faqs' ),
+				'permission_callback' => array( __CLASS__, 'check_agent_permission' ),
+			)
+		);
+		register_rest_route(
+			self::NAMESPACE,
+			'/kb/faqs/generate',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'regenerate_kb_faqs' ),
+				'permission_callback' => array( __CLASS__, 'check_agent_permission' ),
+			)
+		);
+
 		// 11. Platform Settings (Owner Only)
 		register_rest_route(
 			self::NAMESPACE,
@@ -446,7 +466,11 @@ class Mteja_Rest_Controller {
 		global $wpdb;
 		$table = $wpdb->prefix . 'mteja_workspaces';
 		$row   = $wpdb->get_row( "SELECT * FROM $table LIMIT 1", ARRAY_A );
-		return is_array( $row ) ? $row : array();
+		if ( is_array( $row ) ) {
+			$row['offline_email'] = (bool) get_option( 'mteja_offline_email_fallback', 1 );
+			return $row;
+		}
+		return array();
 	}
 
 	/**
@@ -463,6 +487,7 @@ class Mteja_Rest_Controller {
 
 		$row['similarity_threshold'] = (float) $row['similarity_threshold'];
 		$row['operating_hours']      = json_decode( $row['operating_hours'], true );
+		$row['offline_email']        = (bool) get_option( 'mteja_offline_email_fallback', 1 );
 
 		return rest_ensure_response( $row );
 	}
@@ -487,6 +512,9 @@ class Mteja_Rest_Controller {
 		}
 		if ( $request->has_param( 'allowed_domains' ) ) {
 			$data['allowed_domains'] = sanitize_textarea_field( $request->get_param( 'allowed_domains' ) );
+		}
+		if ( $request->has_param( 'offline_email' ) ) {
+			update_option( 'mteja_offline_email_fallback', $request->get_param( 'offline_email' ) ? 1 : 0 );
 		}
 
 		if ( ! empty( $data ) ) {
@@ -1372,35 +1400,57 @@ class Mteja_Rest_Controller {
 
 		$ws_id     = get_option( 'mteja_default_workspace_id', '' );
 		$ws        = self::get_workspace_data();
-		$threshold = isset( $ws['similarity_threshold'] ) ? (float) $ws['similarity_threshold'] : 0.70;
-		$prompt    = isset( $ws['system_prompt'] ) ? $ws['system_prompt'] : '';
+		
+		// Allow live unsaved prompt and threshold overrides from the playground
+		$threshold = $request->has_param( 'threshold' ) ? (float) $request->get_param( 'threshold' ) : ( isset( $ws['similarity_threshold'] ) ? (float) $ws['similarity_threshold'] : 0.70 );
+		$prompt    = $request->has_param( 'system_prompt' ) ? sanitize_textarea_field( $request->get_param( 'system_prompt' ) ) : ( isset( $ws['system_prompt'] ) ? $ws['system_prompt'] : '' );
 
 		if ( ! Mteja_RAG::is_configured() ) {
 			return rest_ensure_response(
 				array(
-					'reply'      => '[Platform Notice]: Supabase & FreeLLMAPI credentials are not yet configured in Settings. Once configured, live pgvector search and grounded responses will execute here.',
-					'threshold'  => $threshold,
-					'chunks'     => array(),
-					'similarity' => 0,
-					'handoff'    => true,
+					'reply'            => '[Platform Notice]: Supabase & FreeLLMAPI credentials are not yet configured in Settings. Once configured, live pgvector search and grounded responses will execute here.',
+					'threshold'        => $threshold,
+					'chunks'           => array(),
+					'similarity'       => 0,
+					'passed_threshold' => false,
+					'handoff'          => false,
 				)
 			);
 		}
 
+		// Search pgvector chunks
 		$chunks  = Mteja_RAG::search_chunks( $query, $ws_id, $threshold, 3 );
 		$top_sim = ( ! empty( $chunks ) && isset( $chunks[0]['similarity'] ) ) ? (float) $chunks[0]['similarity'] : 0;
+		$passed  = ( $top_sim >= $threshold );
 
-		$history  = array( array( 'sender_type' => 'visitor', 'content' => $query ) );
+		// Support multi-turn history from the sandbox
+		$history  = array();
+		$raw_hist = $request->get_param( 'history' );
+		if ( is_array( $raw_hist ) && ! empty( $raw_hist ) ) {
+			foreach ( $raw_hist as $h ) {
+				if ( ! empty( $h['content'] ) && ! empty( $h['sender_type'] ) ) {
+					$history[] = array(
+						'sender_type' => sanitize_text_field( $h['sender_type'] ),
+						'content'     => sanitize_text_field( $h['content'] ),
+					);
+				}
+			}
+		}
+		if ( empty( $history ) ) {
+			$history = array( array( 'sender_type' => 'visitor', 'content' => $query ) );
+		}
+
 		$response = Mteja_RAG::generate_chat_completion( $history, $prompt, $chunks );
 
 		if ( is_wp_error( $response ) ) {
 			return rest_ensure_response(
 				array(
-					'reply'      => '[AI Engine Error]: ' . $response->get_error_message(),
-					'threshold'  => $threshold,
-					'chunks'     => $chunks,
-					'similarity' => $top_sim,
-					'handoff'    => true,
+					'reply'            => '[AI Engine Error]: ' . $response->get_error_message(),
+					'threshold'        => $threshold,
+					'chunks'           => $chunks,
+					'similarity'       => $top_sim,
+					'passed_threshold' => $passed,
+					'handoff'          => true,
 				)
 			);
 		}
@@ -1408,15 +1458,44 @@ class Mteja_Rest_Controller {
 		$has_escalate_tag = ( strpos( $response, '[ESCALATE_TO_HUMAN]' ) !== false );
 		$clean_reply      = trim( str_replace( '[ESCALATE_TO_HUMAN]', '', $response ) );
 
+		// Format chunk metadata for preview
+		$formatted_chunks = array();
+		foreach ( $chunks as $c ) {
+			$formatted_chunks[] = array(
+				'id'         => isset( $c['id'] ) ? $c['id'] : '',
+				'content'    => isset( $c['content'] ) ? substr( $c['content'], 0, 300 ) . ( strlen( $c['content'] ) > 300 ? '...' : '' ) : '',
+				'similarity' => isset( $c['similarity'] ) ? round( (float) $c['similarity'], 3 ) : 0,
+			);
+		}
+
 		return rest_ensure_response(
 			array(
-				'reply'      => $clean_reply,
-				'threshold'  => $threshold,
-				'chunks'     => $chunks,
-				'similarity' => $top_sim,
-				'handoff'    => $has_escalate_tag,
+				'reply'            => $clean_reply,
+				'threshold'        => $threshold,
+				'chunks'           => $formatted_chunks,
+				'similarity'       => round( $top_sim, 3 ),
+				'passed_threshold' => $passed,
+				'handoff'          => $has_escalate_tag,
 			)
 		);
+	}
+
+	/**
+	 * Get Auto-Generated FAQs.
+	 */
+	public static function get_kb_faqs( $request ) {
+		$ws_id = get_option( 'mteja_default_workspace_id', 'default' );
+		$faqs  = Mteja_RAG::generate_faqs( $ws_id, 6, false );
+		return rest_ensure_response( array( 'faqs' => $faqs ) );
+	}
+
+	/**
+	 * Regenerate Auto-Generated FAQs using LLM.
+	 */
+	public static function regenerate_kb_faqs( $request ) {
+		$ws_id = get_option( 'mteja_default_workspace_id', 'default' );
+		$faqs  = Mteja_RAG::generate_faqs( $ws_id, 6, true );
+		return rest_ensure_response( array( 'faqs' => $faqs, 'message' => 'FAQs refreshed from knowledge base.' ) );
 	}
 }
 

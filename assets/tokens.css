@@ -1,118 +1,175 @@
 /* ==========================================================================
-   Mteja — Google Stitch Design System Tokens & Gutenberg Preview Styles
-   Autonomous AI Support Agent for WordPress
+   Mteja — Warm Parchment Atelier Design Tokens & Motion Engineering
+   Grounded in Cursor Design Language, shadcn/ui (Lyra + Base), and Emil Kowalski Motion
    ========================================================================== */
 
 :root {
-  /* Stitch Canonical Palette */
-  --mteja-canvas: #faf9f6;
-  --mteja-surface: #ffffff;
-  --mteja-surface-muted: #f4f4f1;
-  --mteja-surface-subtle: #f7f7f5;
-  --mteja-border: #e5e5e2;
-  --mteja-border-subtle: #ededeb;
-  --mteja-pitch: #111111;
-  --mteja-charcoal-dark: #1a1a1a;
-  --mteja-charcoal-text: #242424;
-  --mteja-muted: #71717a;
-  --mteja-muted-light: #a1a1aa;
-  --mteja-emerald: #10b981;
+  /* Warm Parchment Palette (DESIGN.md Section 2) */
+  --color-parchment: #f7f7f4;
+  --color-bone: #f2f1ed;
+  --color-linen: #e6e5e0;
+  --color-stone: #cdcdc9;
+  --color-ink: #26251e;
+  --color-ember: #f54e00;
+  --color-amber: #c08532;
+  --color-forest: #34785c;
+  --color-ash: #7a7974;
+  --color-driftwood: #84847e;
+  --color-mist: #a1a19f;
+  --color-selection: #8bc4f8;
 
-  /* Legacy Warm Parchment fallbacks */
-  --mteja-parchment: #faf9f6;
-  --mteja-bone: #f4f4f1;
-  --mteja-stone: #e5e5e2;
-  --mteja-ink: #111111;
-  --mteja-ash: #71717a;
+  /* Aliases for Semantic Role Compatibility */
+  --mteja-canvas: var(--color-parchment);
+  --mteja-surface: var(--color-bone);
+  --mteja-surface-subtle: var(--color-linen);
+  --mteja-border: var(--color-stone);
+  --mteja-pitch: var(--color-ink);
+  --mteja-muted: var(--color-ash);
+  --mteja-emerald: var(--color-forest);
+  --mteja-parchment: var(--color-parchment);
+  --mteja-bone: var(--color-bone);
+  --mteja-stone: var(--color-stone);
+  --mteja-ink: var(--color-ink);
+  --mteja-ember: var(--color-ember);
+  --mteja-amber: var(--color-amber);
 
-  /* Radii */
-  --mteja-radius-pill: 9999px;
-  --mteja-radius-card: 16px;
-  --mteja-radius-frame: 12px;
-  --mteja-radius-sm: 8px;
+  /* Geometry & Radii (4px strict workhorse, 8px for modals) */
+  --radius-xs: 2px;
+  --radius: 4px;
+  --radius-sm: 4px;
+  --radius-card: 4px;
+  --radius-modal: 8px;
+  --mteja-radius-sm: 4px;
+  --mteja-radius-card: 4px;
+  --mteja-radius-frame: 6px;
 
-  /* Shadows */
-  --mteja-shadow-subtle: 0 8px 30px rgba(0, 0, 0, 0.04);
-  --mteja-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  /* Elevation (Warm Double-Layer, zero cool tint) */
+  --shadow-warm-xs: 0 1px 2px rgba(38, 37, 30, 0.04);
+  --shadow-warm-sm: 0 2px 6px rgba(38, 37, 30, 0.06);
+  --shadow-warm-xl: rgba(0, 0, 0, 0.14) 0px 28px 70px 0px, rgba(0, 0, 0, 0.1) 0px 14px 32px 0px, rgba(38, 37, 30, 0.1) 0px 0px 0px 1px;
+  --shadow-popover: 0 0 1rem rgba(38, 37, 30, 0.05), 0 0 0.5rem rgba(38, 37, 30, 0.02);
 
-  /* Typography */
-  --mteja-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --mteja-font-mono: 'JetBrains Mono', Menlo, Monaco, Consolas, monospace;
+  /* Emil Kowalski Motion Curves (DESIGN.md Section 7) */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --transition-fast: 160ms var(--ease-out);
+  --transition-smooth: 240ms var(--ease-out);
+
+  /* Typography (Inter / Sans, JetBrains Mono, EB Garamond) */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', Menlo, Monaco, Consolas, monospace;
+  --font-serif: 'EB Garamond', Georgia, serif;
+}
+
+/* Global Mobile-Native Tap & Selection Resets */
+html, body {
+  -webkit-tap-highlight-color: transparent !important;
 }
 
 /* Base Body & Canvas */
 body.mteja-page,
 .mteja-stitch-canvas,
 .mteja-login-canvas {
-  background-color: var(--mteja-canvas) !important;
-  color: var(--mteja-pitch) !important;
-  font-family: var(--mteja-font-sans);
+  background-color: var(--color-parchment) !important;
+  color: var(--color-ink) !important;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Selection */
-.mteja-stitch-canvas ::selection,
-.mteja-login-canvas ::selection {
-  background-color: var(--mteja-pitch);
-  color: #ffffff;
+/* Native Selection Highlight (Only allowed cool tone) */
+::selection {
+  background-color: var(--color-selection) !important;
+  color: var(--color-ink) !important;
 }
 
-/* Header Sticky Blur */
+/* Header Sticky Warm Blur */
 .mteja-header-nav {
   position: sticky;
   top: 0;
   z-index: 50;
-  background-color: rgba(250, 249, 246, 0.9) !important;
+  background-color: rgba(247, 247, 244, 0.92) !important;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--mteja-border) !important;
+  border-bottom: 1px solid var(--color-stone) !important;
 }
 
-/* Button & Pill Micro-Interactions */
-.mteja-stitch-canvas .wp-block-button__link,
-.mteja-login-canvas button[type="submit"] {
-  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background-color 150ms ease, opacity 150ms ease !important;
+/* Emil Kowalski Button Feedback (scale(0.97) on :active with 160ms ease-out) */
+button,
+.interactive-btn,
+.wp-block-button__link,
+.mteja-button {
+  transition: transform 160ms var(--ease-out), background-color 150ms ease, opacity 150ms ease, border-color 150ms ease !important;
   touch-action: manipulation !important;
 }
 
-.mteja-stitch-canvas .wp-block-button__link:active,
-.mteja-login-canvas button[type="submit"]:active {
-  transform: scale(0.98) !important;
+button:active:not(:disabled),
+.interactive-btn:active:not(:disabled),
+.wp-block-button__link:active,
+.mteja-button:active:not(:disabled) {
+  transform: scale(0.97) !important;
 }
 
-/* Avatar & Logo Placeholder Slots */
-.mteja-avatar-slot,
-.mteja-logo-slot {
+/* Sticky Hover Protection for Touch Devices */
+@media (hover: hover) and (pointer: fine) {
+  .interactive-btn:hover {
+    filter: brightness(0.98);
+  }
+  .mteja-card-hover:hover {
+    border-color: var(--color-ink);
+  }
+}
+
+/* Origin-Aware Popover & Widget Animations (scale(0.95) to scale(1)) */
+.mteja-popover-enter {
+  animation: mtejaOriginEnter 180ms var(--ease-out) forwards;
+}
+
+@keyframes mtejaOriginEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Asymmetric Hold-to-Resolve Pattern */
+.mteja-hold-btn {
   position: relative;
-  transition: opacity 150ms ease;
+  overflow: hidden;
   user-select: none;
+  touch-action: manipulation;
 }
 
-.mteja-avatar-slot:hover,
-.mteja-logo-slot:hover {
-  opacity: 0.85;
+.mteja-hold-progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.22);
+  transition: width 200ms var(--ease-out);
+  pointer-events: none;
 }
 
-/* Interactive OS Showcase Frame */
-.mteja-hero-os-frame {
-  box-shadow: var(--mteja-shadow-subtle) !important;
+.mteja-hold-btn.holding .mteja-hold-progress-fill {
+  transition: width 1.2s linear;
 }
 
-/* Mobile Responsiveness Enhancements */
+/* Mobile Responsiveness & 100dvh Layouts */
 @media (max-width: 768px) {
   .mteja-header-nav {
     padding-left: 16px !important;
     padding-right: 16px !important;
   }
   
-  .mteja-hero-os-frame .wp-block-columns {
-    flex-direction: column !important;
+  .mteja-desk-container {
+    height: 100dvh !important;
   }
 
-  .mteja-hero-os-frame .wp-block-column {
-    flex-basis: 100% !important;
-    border-right: none !important;
-    border-bottom: 1px solid var(--mteja-border) !important;
+  input, textarea, select {
+    font-size: 16px !important; /* Prevents iOS auto-zoom on focus */
   }
 }
