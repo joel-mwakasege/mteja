@@ -27,7 +27,18 @@
     composerType: 'public', // 'public' | 'whisper'
     composerText: '',
     searchQuery: '',
-    queueFilter: 'escalations', // 'escalations' | 'all' | 'resolved'
+    queueFilter: 'all', // 'all' | 'waiting' | 'ai' | 'resolved'
+    snippets: [],
+    slashPalette: {
+      open: false,
+      query: '',
+      selectedIndex: 0,
+      filtered: [],
+      matchStart: 0,
+      matchEnd: 0
+    },
+    editingVisitorEmail: false,
+    savingVisitorEmail: false,
     holdProgress: 0,
     isHolding: false,
     workspace: null,
@@ -114,6 +125,12 @@
     const docs = await api('knowledge');
     if (docs && Array.isArray(docs)) {
       state.knowledgeDocs = docs;
+    }
+
+    // 4. Fetch Canned Snippets
+    const snippets = await api('snippets');
+    if (snippets && Array.isArray(snippets)) {
+      state.snippets = snippets;
     }
 
     loadFaqs(false);
@@ -248,6 +265,13 @@
         headerContainer.innerHTML = renderActiveConversationHeader(selectedConv);
       }
     }
+    const contextContainer = document.getElementById('context-rail-container');
+    if (contextContainer && state.selectedConvId && !state.editingVisitorEmail) {
+      const selectedConv = state.conversations.find(c => c.id === state.selectedConvId) || state.activeConversation;
+      if (selectedConv) {
+        contextContainer.innerHTML = renderContextInspector(selectedConv);
+      }
+    }
   }
 
   // 1. COLLAPSED ICON-ONLY NAVIGATION RAIL (64px)
@@ -359,13 +383,17 @@
             </div>
             <!-- Filter Tabs -->
             <div class="flex gap-1">
-              ${['escalations', 'all', 'resolved'].map(f => `
-                <button 
-                  class="filter-tab-btn px-2.5 py-1 rounded-sm text-[11.5px] font-medium transition-colors ${state.queueFilter === f ? 'bg-pitch text-white' : 'text-muted hover:text-pitch'}" 
-                  data-filter="${f}">
-                  ${f.charAt(0).toUpperCase() + f.slice(1)}
-                </button>
-              `).join('')}
+              ${['all', 'waiting', 'ai', 'resolved'].map(f => {
+                const label = f === 'ai' ? 'AI' : (f.charAt(0).toUpperCase() + f.slice(1));
+                const isActive = state.queueFilter === f;
+                return `
+                  <button 
+                    class="filter-tab-btn px-2.5 py-1 rounded-sm text-[11.5px] font-medium transition-colors ${isActive ? 'bg-pitch text-white' : 'text-muted hover:text-pitch'}" 
+                    data-filter="${f}">
+                    ${label}
+                  </button>
+                `;
+              }).join('')}
             </div>
           </div>
           <!-- Queue Feed -->
@@ -390,7 +418,7 @@
         </main>
 
         <!-- PANE 3: Dynamic Context Rail (310px) -->
-        <aside class="w-[310px] flex-shrink-0 flex flex-col bg-surface overflow-y-auto p-4 gap-5">
+        <aside class="w-[310px] flex-shrink-0 flex flex-col bg-surface overflow-y-auto p-4 gap-5" id="context-rail-container">
           ${renderContextInspector(selectedConv)}
         </aside>
       </div>
@@ -621,6 +649,44 @@
     return html;
   }
 
+  // Canned Macros Autocomplete Palette
+  function renderSlashPalette() {
+    if (!state.slashPalette.open) return '';
+    const items = state.slashPalette.filtered || [];
+
+    return `
+      <div id="slash-palette" class="mteja-slash-palette absolute bottom-full left-0 mb-2 w-full max-w-[480px] bg-white border border-border rounded-sm z-50 overflow-hidden font-sans">
+        <div class="px-3 py-1.5 bg-surface-subtle border-b border-border flex items-center justify-between text-[10.5px] text-muted">
+          <span class="font-mono font-medium uppercase text-pitch flex items-center gap-1">
+            <span class="material-symbols-outlined text-[12px] text-pitch">bolt</span>
+            Canned Macros (${items.length})
+          </span>
+          <span>↑↓ navigate · Enter/Tab insert · Esc</span>
+        </div>
+        <div class="max-h-[220px] overflow-y-auto divide-y divide-border/60" id="slash-palette-items">
+          ${items.length === 0 ? `
+            <div class="p-3 text-[12px] text-muted text-center">No matching macros for "/${escapeHtml(state.slashPalette.query)}"</div>
+          ` : items.map((item, idx) => `
+            <div 
+              class="slash-palette-item px-3 py-2 cursor-pointer transition-colors flex flex-col gap-0.5 ${idx === state.slashPalette.selectedIndex ? 'bg-surface-subtle text-pitch' : 'hover:bg-surface-subtle/60 text-charcoal-text'}"
+              data-index="${idx}"
+              data-shortcut="${escapeHtml(item.shortcut)}"
+              data-content="${escapeHtml(item.content)}">
+              <div class="flex items-center justify-between">
+                <span class="font-mono text-[11px] font-bold text-pitch bg-surface-muted px-1.5 py-0.2 rounded-xs border border-border/80">
+                  ${escapeHtml(item.shortcut)}
+                </span>
+              </div>
+              <p class="text-[11.5px] text-muted truncate leading-snug">
+                ${escapeHtml(item.content)}
+              </p>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
   function renderComposerDock() {
     return `
       <footer class="p-3.5 bg-surface border-t border-border flex flex-col gap-2">
@@ -644,7 +710,8 @@
         </div>
         
         <!-- Textarea Card -->
-        <div class="flex flex-col rounded-sm border border-border bg-white p-2.5 focus-within:border-pitch transition-colors">
+        <div class="relative flex flex-col rounded-sm border border-border bg-white p-2.5 focus-within:border-pitch transition-colors">
+          <div id="slash-palette-anchor">${renderSlashPalette()}</div>
           <textarea 
             class="w-full bg-transparent resize-none text-pitch placeholder:text-muted font-sans text-[13px] focus:outline-none" 
             id="composer-textarea"
@@ -652,17 +719,18 @@
             placeholder="${state.composerType === 'public' ? 'Type your response to the customer...' : 'Write an internal note visible only to support staff...'}">${state.composerText}</textarea>
           
           <div class="flex items-center justify-between pt-2 border-t border-border/60 mt-1">
-            <div class="flex items-center gap-1.5 text-muted">
-              <button type="button" class="quick-snippet-btn p-1 rounded-sm hover:text-pitch cursor-pointer flex items-center gap-1" data-snippet="/aisupport" title="Quick Snippet: /aisupport (Transfer chat back to Autonomous AI)">
-                <span class="material-symbols-outlined text-[13px] text-emerald-600">smart_toy</span>
-                <span class="font-mono text-xs font-semibold text-emerald-800 bg-emerald-50 px-1 py-0.2 rounded-xs border border-emerald-200">/aisupport</span>
-              </button>
-              <button type="button" class="quick-snippet-btn p-1 rounded-sm hover:text-pitch cursor-pointer" data-snippet="I have processed your refund." title="Quick Snippet: /refund">
-                <span class="font-mono text-xs font-semibold">/refund</span>
-              </button>
-              <button type="button" class="quick-snippet-btn p-1 rounded-sm hover:text-pitch cursor-pointer" data-snippet="I have escalated this to engineering." title="Quick Snippet: /escalate">
-                <span class="font-mono text-xs font-semibold">/escalate</span>
-              </button>
+            <div class="flex items-center gap-1.5 text-muted flex-wrap">
+              ${(state.snippets && state.snippets.length > 0 ? state.snippets.slice(0, 5) : [
+                { shortcut: '/refund', content: 'I have processed your refund.' },
+                { shortcut: '/escalate', content: 'I have escalated this to engineering.' },
+                { shortcut: '/status', content: "I've checked the status of your order." },
+                { shortcut: '/shipping', content: 'Standard shipping takes 2-4 business days.' },
+                { shortcut: '/aisupport', content: 'Transfer chat back to Autonomous AI' }
+              ]).map(s => `
+                <button type="button" class="quick-snippet-btn p-1 rounded-sm hover:text-pitch cursor-pointer flex items-center gap-1" data-snippet="${escapeHtml(s.content)}" title="${escapeHtml(s.shortcut)}: ${escapeHtml(s.content)}">
+                  <span class="font-mono text-xs font-semibold ${s.shortcut === '/aisupport' ? 'text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded-xs border border-emerald-200' : ''}">${escapeHtml(s.shortcut)}</span>
+                </button>
+              `).join('')}
             </div>
             <button 
               class="interactive-btn px-4 py-1.5 rounded-sm font-medium text-[12px] text-white flex items-center gap-1.5 shadow-sm transition-all ${state.composerType === 'public' ? 'bg-pitch hover:bg-black' : 'bg-amber-action hover:opacity-90'}" 
@@ -692,12 +760,55 @@
 
         <!-- Customer Card -->
         <div class="space-y-2">
-          <div class="text-[11px] font-medium text-muted uppercase tracking-wider">Visitor Profile</div>
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-medium text-muted uppercase tracking-wider">Visitor Profile</span>
+            <button 
+              type="button" 
+              id="btn-toggle-lead-email" 
+              class="text-[11px] font-medium text-pitch hover:underline flex items-center gap-0.5 cursor-pointer"
+              title="${conv.visitor_email ? 'Edit Customer Lead Email' : 'Bind Customer Lead Email'}">
+              <span class="material-symbols-outlined text-[13px]">${conv.visitor_email ? 'edit' : 'add'}</span>
+              <span>${conv.visitor_email ? 'Edit' : 'Bind Email'}</span>
+            </button>
+          </div>
           <div class="p-3 rounded-sm bg-surface-subtle border border-border space-y-2 text-[12px]">
-            <div class="flex justify-between">
+            <div class="flex justify-between items-center">
               <span class="text-muted">Contact</span>
-              <span class="font-medium text-pitch">${conv.visitor_email || 'Anonymous'}</span>
+              <span class="font-medium text-pitch ${!conv.visitor_email ? 'italic text-muted' : ''}" id="lead-email-display">
+                ${conv.visitor_email || 'Not captured yet'}
+              </span>
             </div>
+
+            ${state.editingVisitorEmail ? `
+              <div class="mt-2 pt-2 border-t border-border flex flex-col gap-1.5" id="lead-email-form">
+                <label class="text-[10px] font-mono text-muted">Bind Customer Email (Queries WooCommerce Orders)</label>
+                <div class="flex gap-1.5">
+                  <input 
+                    type="email" 
+                    id="input-lead-email" 
+                    value="${escapeHtml(conv.visitor_email || '')}" 
+                    placeholder="customer@example.com"
+                    class="flex-1 px-2 py-1 text-[12px] bg-white border border-border rounded-sm focus:outline-none focus:border-pitch font-sans" 
+                    autocomplete="off"
+                  />
+                  <button 
+                    type="button" 
+                    id="btn-save-lead-email" 
+                    class="interactive-btn px-2.5 py-1 text-[11px] font-medium bg-pitch text-white rounded-sm hover:bg-black transition-colors disabled:opacity-50"
+                    ${state.savingVisitorEmail ? 'disabled' : ''}>
+                    ${state.savingVisitorEmail ? 'Saving...' : 'Save'}
+                  </button>
+                  <button 
+                    type="button" 
+                    id="btn-cancel-lead-email" 
+                    class="px-2 py-1 text-[11px] text-muted hover:text-pitch rounded-sm transition-colors">
+                    Cancel
+                  </button>
+                </div>
+                <div id="lead-email-error" class="text-[11px] text-red-600 hidden"></div>
+              </div>
+            ` : ''}
+
             <div class="flex justify-between">
               <span class="text-muted">Location</span>
               <span class="text-pitch">${(conv.geo_city || conv.geo_country) ? [conv.geo_city, conv.geo_country].filter(Boolean).join(', ') : 'Unknown'}</span>
@@ -1545,6 +1656,43 @@
     `;
   }
 
+  // Helper to re-render floating slash palette
+  function updateSlashPaletteDOM() {
+    const anchor = document.getElementById('slash-palette-anchor');
+    if (anchor) {
+      anchor.innerHTML = renderSlashPalette();
+    }
+  }
+
+  // Insert macro snippet text cleanly into composer
+  function insertMacroSnippet(snippetContent) {
+    const textarea = document.getElementById('composer-textarea');
+    if (!textarea) return;
+
+    const val = textarea.value;
+    const start = (state.slashPalette.matchStart !== undefined && state.slashPalette.matchStart >= 0) 
+      ? state.slashPalette.matchStart 
+      : (val.lastIndexOf('/') !== -1 ? val.lastIndexOf('/') : 0);
+    const end = (state.slashPalette.matchEnd !== undefined && state.slashPalette.matchEnd >= start)
+      ? state.slashPalette.matchEnd
+      : val.length;
+
+    const before = val.slice(0, start);
+    const after = val.slice(end);
+    const newVal = before + snippetContent + (after.startsWith(' ') || after.length === 0 ? ' ' : '') + after;
+
+    textarea.value = newVal;
+    state.composerText = newVal;
+    state.slashPalette.open = false;
+    updateSlashPaletteDOM();
+
+    // Place cursor right after the newly inserted macro snippet
+    const newCursor = start + snippetContent.length + 1;
+    textarea.focus();
+    textarea.setSelectionRange(newCursor, newCursor);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
   // =========================================================================
   // GLOBAL EVENT DELEGATION (Attached once, immune to polling DOM rebuilds)
   // =========================================================================
@@ -1559,6 +1707,43 @@
       if (!e.target) return;
       if (e.target.id === 'composer-textarea') {
         state.composerText = e.target.value;
+
+        // Detect / macro trigger
+        const textarea = e.target;
+        const val = textarea.value;
+        const cursorPos = textarea.selectionStart;
+        const beforeCursor = val.slice(0, cursorPos);
+        const match = beforeCursor.match(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/);
+
+        if (match) {
+          const query = match[1].toLowerCase();
+          const matchLen = match[1].length + 1; // slash + query
+          state.slashPalette.open = true;
+          state.slashPalette.query = query;
+          state.slashPalette.matchStart = cursorPos - matchLen;
+          state.slashPalette.matchEnd = cursorPos;
+
+          const pool = (state.snippets && state.snippets.length > 0) ? state.snippets : [
+            { shortcut: '/refund', content: 'I have processed your refund. Please allow 3-5 business days for it to reflect on your original payment method.' },
+            { shortcut: '/escalate', content: 'I have escalated this issue directly to our senior engineering team. We will follow up shortly.' },
+            { shortcut: '/status', content: "I've checked the status of your order and it is currently being prepared for shipment." },
+            { shortcut: '/shipping', content: 'Standard shipping typically takes 2-4 business days. You will receive a tracking link via email once dispatched.' },
+            { shortcut: '/aisupport', content: 'I am returning this thread to our autonomous AI specialist who will continue assisting you with any questions.' }
+          ];
+
+          state.slashPalette.filtered = pool.filter(s => 
+            s.shortcut.toLowerCase().includes('/' + query) ||
+            s.shortcut.toLowerCase().includes(query) ||
+            s.content.toLowerCase().includes(query)
+          );
+          state.slashPalette.selectedIndex = 0;
+          updateSlashPaletteDOM();
+        } else {
+          if (state.slashPalette.open) {
+            state.slashPalette.open = false;
+            updateSlashPaletteDOM();
+          }
+        }
       } else if (e.target.id === 'studio-name-input') {
         state.studioSettings.name = e.target.value;
         const headerName = document.getElementById('sandbox-header-name');
@@ -1582,12 +1767,50 @@
       }
     });
 
-    // 2. Keyboard shortcuts (Cmd/Ctrl + Enter in composer, Enter in sandbox)
+    // 2. Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      if (e.target && e.target.id === 'composer-textarea' && (e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault();
-        const sendBtn = document.getElementById('btn-send-reply');
-        if (sendBtn) sendBtn.click();
+      if (e.target && e.target.id === 'composer-textarea') {
+        if (state.slashPalette.open) {
+          const items = state.slashPalette.filtered || [];
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (items.length > 0) {
+              state.slashPalette.selectedIndex = (state.slashPalette.selectedIndex + 1) % items.length;
+              updateSlashPaletteDOM();
+            }
+            return;
+          }
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (items.length > 0) {
+              state.slashPalette.selectedIndex = (state.slashPalette.selectedIndex - 1 + items.length) % items.length;
+              updateSlashPaletteDOM();
+            }
+            return;
+          }
+          if (e.key === 'Enter' || e.key === 'Tab') {
+            if (items.length > 0 && !e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              const selectedItem = items[state.slashPalette.selectedIndex];
+              if (selectedItem) {
+                insertMacroSnippet(selectedItem.content);
+              }
+              return;
+            }
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            state.slashPalette.open = false;
+            updateSlashPaletteDOM();
+            return;
+          }
+        }
+
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          e.preventDefault();
+          const sendBtn = document.getElementById('btn-send-reply');
+          if (sendBtn) sendBtn.click();
+        }
       } else if (e.target && e.target.id === 'sandbox-input' && e.key === 'Enter') {
         e.preventDefault();
         handleSandboxSend();
@@ -1596,6 +1819,113 @@
 
     // 3. Document-level click event delegation
     document.addEventListener('click', async (e) => {
+      // (a1) Slash Macro Autocomplete Item Click
+      const slashItem = e.target.closest('.slash-palette-item');
+      if (slashItem) {
+        e.preventDefault();
+        const content = slashItem.getAttribute('data-content');
+        if (content) {
+          insertMacroSnippet(content);
+        }
+        return;
+      }
+
+      // (a2) Dismiss Slash Macro Palette on Outside Click
+      if (state.slashPalette.open && !e.target.closest('#slash-palette') && !e.target.closest('#composer-textarea')) {
+        state.slashPalette.open = false;
+        updateSlashPaletteDOM();
+      }
+
+      // (a3) Lead Email Binding Controls in Context Rail
+      const btnToggleEmail = e.target.closest('#btn-toggle-lead-email');
+      if (btnToggleEmail) {
+        e.preventDefault();
+        state.editingVisitorEmail = !state.editingVisitorEmail;
+        const selectedConv = state.conversations.find(c => c.id === state.selectedConvId) || state.activeConversation;
+        const contextContainer = document.getElementById('context-rail-container');
+        if (contextContainer && selectedConv) {
+          contextContainer.innerHTML = renderContextInspector(selectedConv);
+          if (state.editingVisitorEmail) {
+            const input = document.getElementById('input-lead-email');
+            if (input) input.focus();
+          }
+        }
+        return;
+      }
+
+      const btnCancelEmail = e.target.closest('#btn-cancel-lead-email');
+      if (btnCancelEmail) {
+        e.preventDefault();
+        state.editingVisitorEmail = false;
+        const selectedConv = state.conversations.find(c => c.id === state.selectedConvId) || state.activeConversation;
+        const contextContainer = document.getElementById('context-rail-container');
+        if (contextContainer && selectedConv) {
+          contextContainer.innerHTML = renderContextInspector(selectedConv);
+        }
+        return;
+      }
+
+      const btnSaveEmail = e.target.closest('#btn-save-lead-email');
+      if (btnSaveEmail && state.selectedConvId) {
+        e.preventDefault();
+        const input = document.getElementById('input-lead-email');
+        const errEl = document.getElementById('lead-email-error');
+        const emailVal = input ? input.value.trim() : '';
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailVal || !emailRegex.test(emailVal)) {
+          if (errEl) {
+            errEl.textContent = 'Please enter a valid email address.';
+            errEl.classList.remove('hidden');
+          }
+          return;
+        }
+
+        state.savingVisitorEmail = true;
+        btnSaveEmail.disabled = true;
+        btnSaveEmail.textContent = 'Saving...';
+
+        const updatedContext = await api(`conversations/${state.selectedConvId}/email`, {
+          method: 'POST',
+          body: JSON.stringify({ email: emailVal })
+        });
+
+        state.savingVisitorEmail = false;
+        state.editingVisitorEmail = false;
+
+        if (updatedContext && !updatedContext.code) {
+          state.context = updatedContext;
+          const selectedConv = state.conversations.find(c => c.id === state.selectedConvId);
+          if (selectedConv) {
+            selectedConv.visitor_email = emailVal;
+          }
+          if (state.activeConversation) {
+            state.activeConversation.visitor_email = emailVal;
+          }
+
+          const contextContainer = document.getElementById('context-rail-container');
+          if (contextContainer) {
+            contextContainer.innerHTML = renderContextInspector(selectedConv || state.activeConversation);
+          }
+          const headerContainer = document.getElementById('active-conversation-header-container');
+          if (headerContainer) {
+            headerContainer.innerHTML = renderActiveConversationHeader(selectedConv || state.activeConversation);
+          }
+          const queueContainer = document.getElementById('queue-feed-container');
+          if (queueContainer) {
+            queueContainer.innerHTML = renderQueueCards();
+          }
+        } else {
+          if (errEl) {
+            errEl.textContent = (updatedContext && updatedContext.message) ? updatedContext.message : 'Error updating lead email.';
+            errEl.classList.remove('hidden');
+          }
+          btnSaveEmail.disabled = false;
+          btnSaveEmail.textContent = 'Save';
+        }
+        return;
+      }
+
       // (a) Insert Suggested Draft
       const btnInsertDraft = e.target.closest('#btn-insert-suggested-draft');
       if (btnInsertDraft) {
@@ -1965,7 +2295,12 @@
       btn.addEventListener('click', async () => {
         state.queueFilter = btn.getAttribute('data-filter');
         const convs = await api(`conversations?filter=${state.queueFilter}&search=${encodeURIComponent(state.searchQuery)}`);
-        if (convs && Array.isArray(convs)) state.conversations = convs;
+        if (convs && Array.isArray(convs)) {
+          state.conversations = convs;
+          if (convs.length > 0 && !convs.some(c => c.id === state.selectedConvId)) {
+            await loadConversationDetails(convs[0].id);
+          }
+        }
         render();
       });
     });

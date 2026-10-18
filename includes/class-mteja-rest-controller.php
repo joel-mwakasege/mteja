@@ -139,6 +139,15 @@ class Mteja_Rest_Controller {
 				'permission_callback' => array( __CLASS__, 'check_agent_permission' ),
 			)
 		);
+		register_rest_route(
+			self::NAMESPACE,
+			'/conversations/(?P<id>[a-zA-Z0-9-]+)/email',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'update_visitor_email' ),
+				'permission_callback' => array( __CLASS__, 'check_agent_permission' ),
+			)
+		);
 
 		// 6. Knowledge Base Documents
 		register_rest_route(
@@ -182,6 +191,15 @@ class Mteja_Rest_Controller {
 					'callback'            => array( __CLASS__, 'create_snippet' ),
 					'permission_callback' => array( __CLASS__, 'check_agent_permission' ),
 				),
+			)
+		);
+		register_rest_route(
+			self::NAMESPACE,
+			'/snippets/(?P<id>\d+)',
+			array(
+				'methods'             => 'DELETE',
+				'callback'            => array( __CLASS__, 'delete_snippet' ),
+				'permission_callback' => array( __CLASS__, 'check_agent_permission' ),
 			)
 		);
 
@@ -538,6 +556,8 @@ class Mteja_Rest_Controller {
 		$where = 'WHERE 1=1';
 		if ( 'escalations' === $filter || 'waiting' === $filter ) {
 			$where .= " AND status IN ('human_waiting', 'human_active')";
+		} elseif ( 'ai' === $filter ) {
+			$where .= " AND status = 'ai_handling'";
 		} elseif ( 'resolved' === $filter ) {
 			$where .= " AND status = 'resolved'";
 		}
@@ -883,6 +903,38 @@ class Mteja_Rest_Controller {
 	}
 
 	/**
+	 * Update visitor lead email for a conversation and return refreshed context.
+	 */
+	public static function update_visitor_email( $request ) {
+		global $wpdb;
+		$table_conv = $wpdb->prefix . 'mteja_conversations';
+		$conv_id    = sanitize_text_field( $request['id'] );
+		$email      = sanitize_email( $request->get_param( 'email' ) );
+
+		if ( empty( $email ) || ! is_email( $email ) ) {
+			return new WP_Error( 'invalid_email', 'Please provide a valid email address.', array( 'status' => 400 ) );
+		}
+
+		$conv = $wpdb->get_row( $wpdb->prepare( "SELECT id FROM $table_conv WHERE id = %s", $conv_id ) );
+		if ( ! $conv ) {
+			return new WP_Error( 'not_found', 'Conversation not found.', array( 'status' => 404 ) );
+		}
+
+		$wpdb->update(
+			$table_conv,
+			array(
+				'visitor_email' => $email,
+				'updated_at'    => current_time( 'mysql' ),
+			),
+			array( 'id' => $conv_id ),
+			array( '%s', '%s' ),
+			array( '%s' )
+		);
+
+		return self::get_conversation_context( $request );
+	}
+
+	/**
 	 * Get Knowledge Base documents list.
 	 */
 	public static function get_knowledge_docs() {
@@ -1066,6 +1118,56 @@ class Mteja_Rest_Controller {
 		global $wpdb;
 		$table    = $wpdb->prefix . 'mteja_snippets';
 		$snippets = $wpdb->get_results( "SELECT * FROM $table ORDER BY shortcut ASC", ARRAY_A );
+
+		if ( empty( $snippets ) ) {
+			// Seed default standard macros
+			$workspace_id = get_option( 'mteja_default_workspace_id', '' );
+			if ( empty( $workspace_id ) ) {
+				$table_ws     = $wpdb->prefix . 'mteja_workspaces';
+				$workspace_id = $wpdb->get_var( "SELECT id FROM $table_ws LIMIT 1" );
+				if ( ! $workspace_id ) {
+					$workspace_id = 'default';
+				}
+			}
+
+			$defaults = array(
+				array(
+					'shortcut' => '/refund',
+					'content'  => 'I have processed your refund. Please allow 3-5 business days for it to reflect on your original payment method.',
+				),
+				array(
+					'shortcut' => '/escalate',
+					'content'  => 'I have escalated this issue directly to our senior engineering team. We will follow up shortly.',
+				),
+				array(
+					'shortcut' => '/status',
+					'content'  => "I've checked the status of your order and it is currently being prepared for shipment.",
+				),
+				array(
+					'shortcut' => '/shipping',
+					'content'  => 'Standard shipping typically takes 2-4 business days. You will receive a tracking link via email once dispatched.',
+				),
+				array(
+					'shortcut' => '/aisupport',
+					'content'  => 'I am returning this thread to our autonomous AI specialist who will continue assisting you with any questions.',
+				),
+			);
+
+			foreach ( $defaults as $d ) {
+				$wpdb->insert(
+					$table,
+					array(
+						'workspace_id' => $workspace_id,
+						'shortcut'     => $d['shortcut'],
+						'content'      => $d['content'],
+						'created_at'   => current_time( 'mysql' ),
+					)
+				);
+			}
+
+			$snippets = $wpdb->get_results( "SELECT * FROM $table ORDER BY shortcut ASC", ARRAY_A );
+		}
+
 		return rest_ensure_response( is_array( $snippets ) ? $snippets : array() );
 	}
 
@@ -1078,6 +1180,10 @@ class Mteja_Rest_Controller {
 		$shortcut = sanitize_text_field( $request->get_param( 'shortcut' ) );
 		$content  = sanitize_textarea_field( $request->get_param( 'content' ) );
 
+		if ( ! empty( $shortcut ) && 0 !== strpos( $shortcut, '/' ) ) {
+			$shortcut = '/' . $shortcut;
+		}
+
 		$wpdb->insert(
 			$table,
 			array(
@@ -1088,7 +1194,19 @@ class Mteja_Rest_Controller {
 			)
 		);
 
-		return rest_ensure_response( array( 'success' => true, 'shortcut' => $shortcut ) );
+		return rest_ensure_response( array( 'success' => true, 'id' => $wpdb->insert_id, 'shortcut' => $shortcut ) );
+	}
+
+	/**
+	 * Delete Canned Snippet.
+	 */
+	public static function delete_snippet( $request ) {
+		global $wpdb;
+		$table = $wpdb->prefix . 'mteja_snippets';
+		$id    = (int) $request['id'];
+
+		$deleted = $wpdb->delete( $table, array( 'id' => $id ), array( '%d' ) );
+		return rest_ensure_response( array( 'success' => (bool) $deleted, 'id' => $id ) );
 	}
 
 	/**

@@ -173,3 +173,21 @@ button:active:not(:disabled),
     font-size: 16px !important; /* Prevents iOS auto-zoom on focus */
   }
 }
+
+/* Slash Macro Autocomplete Popover (DESIGN.md Section 7) */
+.mteja-slash-palette {
+  transform-origin: bottom left;
+  animation: mteja-popover-entrance 160ms var(--ease-out) forwards;
+  box-shadow: 0 4px 20px rgba(38, 37, 30, 0.08), 0 1px 3px rgba(38, 37, 30, 0.05);
+}
+
+@keyframes mteja-popover-entrance {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
